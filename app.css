@@ -382,3 +382,26 @@ input,textarea{-webkit-user-select:text;user-select:text}
 .toast.abmini{bottom:calc(74px + 58px + var(--safe-b))}
 .toast.abminilow{bottom:calc(12px + 58px + var(--safe-b))}
 .toast.top{top:calc(12px + env(safe-area-inset-top,0px));bottom:auto}
+
+/* 2.0.7 — race quality lists, file info, non-runners, abandoned */
+.fold{margin:8px 12px 0;width:calc(100% - 24px);min-height:48px;padding:0 14px;border-radius:13px;background:var(--panel);border:1px solid var(--line);display:flex;align-items:center;gap:10px;text-align:left;color:var(--muted)}
+.fold b{font:600 11.5px var(--mono);letter-spacing:1px;color:var(--text)}
+.fold .why{flex:1;font-size:11.5px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fold .n{font:600 14px var(--mono);color:var(--text)}
+.fold svg{transition:transform .15s}
+.fold.open svg{transform:rotate(90deg)}
+.fold.med b{color:var(--blue)}.fold.watch b{color:var(--orange)}
+.fold + .pad.stack{margin-top:6px}
+.filebar{margin:8px 12px 0;padding:7px 10px;border-radius:10px;border:1px solid var(--line);background:var(--panel);font:500 10.5px var(--mono);letter-spacing:.4px;color:var(--dim);display:flex;flex-wrap:wrap;gap:2px 6px;align-items:center;line-height:1.5}
+.filebar b{color:var(--muted);font-weight:600}
+.filebar.warn{border-color:var(--orange-line);background:var(--orange-bg);color:var(--orange)}
+.filebar.warn b{color:var(--orange)}
+.calmnote{margin:8px 12px 0;padding:12px 14px;border-radius:13px;border:1px dashed var(--line2);font-size:12.5px;color:var(--muted);line-height:1.45}
+.fld.nr,.grid .h.nr{background:var(--panel2)!important;color:var(--faint)!important;text-decoration:line-through}
+.oc.N,.score .cells .N{background:var(--panel2);color:var(--dim)}
+.mbtn.on{color:var(--green);border-color:#1E4A38;background:var(--green-bg)}
+.mbtn.nr{color:var(--orange);border-color:var(--orange-line);background:var(--orange-bg)}
+.voidbar{margin:10px 12px 0;padding:12px 14px;border-radius:13px;background:var(--orange-bg);border:1px solid var(--orange-line);color:var(--orange);display:flex;align-items:center;gap:10px;font-size:13px}
+.voidbar b{font:600 12px var(--mono);letter-spacing:1px}
+.voidbar button{margin-left:auto;font:600 11px var(--mono);color:var(--text);padding:8px 0 8px 10px}
+.placed.void{background:var(--panel2);border-color:var(--line2);color:var(--dim)}

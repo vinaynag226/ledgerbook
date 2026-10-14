@@ -3,7 +3,7 @@
   'use strict';
   var LB = window.LB;
   var SLOTS = LB.SLOTS, ENGINES = LB.ENGINES;
-  var VERSION = '2.0.6';
+  var VERSION = '2.0.7';
 
   /* =========================================================
      STATE
@@ -18,7 +18,7 @@
     dev: {                // this phone only
       sound: true, vib: true, keep: true, volume: 0.8, alarmLen: 6, fire: null, lastSync: 0
     },
-    ui: { view: 'home', day: LB.defaultDay(Date.now()), raceId: null, eng: 'claude', resTab: 'need', showAll: false, labF: { country: '', period: '30', track: '' } },
+    ui: { view: 'home', day: LB.defaultDay(Date.now()), raceId: null, eng: 'claude', resTab: 'need', showAll: false, open: {}, labF: { country: '', period: '30', track: '' } },
     armed: false,
     alerts: [],           // queue of {id, k}
     cardBanners: [],
@@ -334,17 +334,41 @@
   }
 
   /* ---------- HOME / COMMAND ---------- */
+  // Focus = TOP + HIGH races (or any race you play / switch alerts on for). MEDIUM, WATCH and
+  // races that already went by stay folded until tapped, so the screen only shows what you work on.
+  function fileBar(day, now) {
+    var f = (S.set.files || {})[day];
+    if (!f) return '';
+    var made = '', warn = '';
+    if (f.at) {
+      var t = Date.parse(f.at);
+      if (isFinite(t)) {
+        made = 'made ' + LB.hhmm(t) + (LB.dayKey(new Date(t)) !== LB.dayKey(new Date(now)) ? ' ' + fmtDay(LB.dayKey(new Date(t))) : '');
+        if (LB.dayKey(new Date(t)) < shiftDay(day, -1)) warn = 'OLD FILE · ';
+      }
+    }
+    return '<div class="filebar' + (warn ? ' warn' : '') + '">' + I.upload.replace('width="20" height="20"', 'width="13" height="13"') + '<b>' + esc(warn + (f.by || 'Race file')) + '</b><span>· ' + (made ? made + ' · ' : '') + 'loaded ' + LB.hhmm(f.t) + ' · ' + f.n + ' races</span></div>';
+  }
+  function foldHtml(key, label, why, list, now, c, cls) {
+    if (!list.length) return '';
+    var open = !!S.ui.open[key];
+    var h = '<button class="fold ' + cls + (open ? ' open' : '') + '" data-act="fold" data-k="' + key + '"><b>' + label + '</b><span class="why">' + why + '</span><span class="n">' + list.length + '</span>' + I.chev + '</button>';
+    if (open) h += '<div class="pad stack">' + list.map(function (r) { return raceRow(r, now, c); }).join('') + '</div>';
+    return h;
+  }
   function homeView() {
     var now = Date.now(), c = cfg(), day = S.ui.day;
     var dayAll = LB.dayRaces(S.races, day);
-    var up = LB.upcoming(S.races, day, now, c);
+    var L = LB.lists(S.races, day, now, c), up = L.focus;
+    var past = LB.passed(S.races, day, now, c);
     var dn = LB.doNow(S.races, day, now, c);
     var need = LB.resultsNeeded(S.races, now, c);
     var fin = LB.finished(S.races, day);
     var bk = LB.bankroll(S.races, S.set);
+    var graded = dayAll.some(function (r) { return r.prio; });
     var h = '<header class="hdr"><div><div class="clock mono" data-clock>' + clockHtml() + '</div>' +
       '<div class="daynav"><button data-act="day" data-n="-1" aria-label="Previous day">' + I.left + '</button><span class="d' + (day === LB.defaultDay(now) ? ' today' : '') + '">' + fmtDay(day) + '</span><button data-act="day" data-n="1" aria-label="Next day">' + I.right + '</button></div></div>' +
-      '<div class="spacer"></div><div style="text-align:right;margin-right:2px"><div class="cap" style="white-space:nowrap;letter-spacing:1px">' + syncLabel() + '</div><div class="cap" style="margin-top:5px;color:var(--text);white-space:nowrap;letter-spacing:1px">' + up.length + ' LEFT / ' + dayAll.length + '</div></div>' +
+      '<div class="spacer"></div><div style="text-align:right;margin-right:2px"><div class="cap" style="white-space:nowrap;letter-spacing:1px">' + syncLabel() + '</div><div class="cap" style="margin-top:5px;color:var(--text);white-space:nowrap;letter-spacing:1px">' + up.length + (graded ? ' FOCUS' : '') + ' LEFT</div></div>' +
       '<button class="iconbtn sm" data-act="importDay" aria-label="Load races" style="color:var(--gold);border-color:var(--gold-line)">' + I.upload + '</button>' +
       '<button class="iconbtn sm" data-act="addRace" aria-label="Add one race">' + I.plus + '</button>' +
       '<button class="iconbtn sm" data-act="settings" aria-label="Settings">' + I.gear + '</button></header>';
@@ -352,17 +376,21 @@
     if (!S.armed) {
       h += '<button class="arm" data-act="arm"><span style="color:var(--gold)">' + I.bell + '</span><div><b>Start race-day mode</b><span>Turns on alert sounds, keeps the screen awake and alerts running in the background. Tap once each time you open the app.</span></div></button>';
     } else {
-      h += '<div class="armed">' + I.sound + '<span style="flex:1">' + (S.dev.sound ? 'SOUND ON' : 'SOUND OFF') + ' · <span class="c">T−' + c.card + ' CHIME</span> · <span class="o">T−' + c.odds + ' ALARM</span>' + (S.dev.keep ? ' · BACKGROUND ON' : '') + '</span></div>';
+      h += '<div class="armed">' + I.sound + '<span style="flex:1">' + (S.dev.sound ? 'SOUND ON' : 'SOUND OFF') + ' · <span class="c">T−' + c.card + ' CHIME</span> · <span class="o">T−' + c.odds + ' ALARM</span>' + (graded ? ' · FOCUS RACES' : '') + '</span></div>';
     }
+    h += fileBar(day, now);
     if (!dayAll.length) {
       h += '<div class="empty"><b>No races for this day</b>Load your race planner file to bring in the whole day at once, or add races one by one.<div style="display:flex;flex-direction:column;gap:8px;margin-top:14px"><button class="btn gold full" data-act="importDay">' + I.upload + 'Load races</button><button class="btn ghost full" data-act="addRace">' + I.plus + 'Add one race</button></div>' + (window.LB_PREVIEW ? '<button class="btn blue sm" style="margin:12px auto 0" data-act="demo">Load a demo race day</button>' : '') + '</div>';
     }
     if (dn) h += nowCard(dn, now, c);
-    else if (up.length) {
-      var nx = up[0], st = LB.stage(nx, now, c);
-      var mins = st.k === 'card_in' || st.k === 'odds_in' ? st.inMin * 60000 : 0;
-      h += '<div class="now calm"><div class="top"><span class="pill" style="background:var(--panel2);color:var(--muted)">ALL CLEAR</span><span class="job" style="color:var(--muted)">' + (st.k === 'card_in' ? 'NEXT: RACECARD' : 'NEXT: FINAL ODDS') + '</span></div>' +
-        '<div class="mid"><div><div class="nm">' + esc(raceName(nx)) + '</div><div class="sub">' + metaLine(nx) + '</div></div><div class="cd" data-cdjob="' + nx.id + '">' + LB.fmtCountdown(mins) + '</div></div></div>';
+    else {
+      var nx = up.filter(LB.followed)[0];
+      if (nx) {
+        var st = LB.stage(nx, now, c);
+        var mins = st.k === 'card_in' || st.k === 'odds_in' ? st.inMin * 60000 : 0;
+        h += '<div class="now calm"><div class="top"><span class="pill" style="background:var(--panel2);color:var(--muted)">ALL CLEAR</span><span class="job" style="color:var(--muted)">' + (st.k === 'card_in' ? 'NEXT: RACECARD' : 'NEXT: FINAL ODDS') + '</span></div>' +
+          '<div class="mid"><div><div class="nm">' + esc(raceName(nx)) + '</div><div class="sub">' + metaLine(nx) + '</div></div><div class="cd" data-cdjob="' + nx.id + '">' + LB.fmtCountdown(mins) + '</div></div></div>';
+      }
     }
     var cl = LB.clashes(S.races, day, now, c);
     if (cl.length) {
@@ -371,10 +399,18 @@
     }
     if (up.length) {
       var show = S.ui.showAll ? up : up.slice(0, 5);
-      h += '<div class="sec"><span class="cap">' + (S.ui.showAll ? 'ALL UPCOMING' : 'TOP 5 UPCOMING') + '</span><span class="cap">TO JUMP</span></div><div class="pad stack">';
+      h += '<div class="sec"><span class="cap">' + (graded ? (S.ui.showAll ? 'FOCUS · ALL' : 'FOCUS · NEXT 5') : (S.ui.showAll ? 'ALL UPCOMING' : 'TOP 5 UPCOMING')) + '</span><span class="cap">TO JUMP</span></div><div class="pad stack">';
       show.forEach(function (r) { h += raceRow(r, now, c); });
-      if (up.length > 5) h += '<button class="more" data-act="showAll">' + (S.ui.showAll ? 'SHOW TOP 5 ONLY' : '+ ' + (up.length - 5) + ' MORE TODAY') + '</button>';
+      if (up.length > 5) h += '<button class="more" data-act="showAll">' + (S.ui.showAll ? 'SHOW NEXT 5 ONLY' : '+ ' + (up.length - 5) + (graded ? ' MORE FOCUS RACES' : ' MORE TODAY')) + '</button>';
       h += '</div>';
+    } else if (dayAll.length && (L.medium.length || L.watch.length)) {
+      h += '<div class="calmnote"><b style="color:var(--text)">No focus races left on this day.</b> Medium and watch races are below — tap a list to open it. Entering picks on any race brings it here with alerts.</div>';
+    }
+    if (dayAll.length) {
+      h += '<div style="height:4px"></div>';
+      h += foldHtml('med', 'MEDIUM', 'no alerts · tap to see', L.medium, now, c, 'med');
+      h += foldHtml('watch', 'WATCH', 'high volatility · no alerts', L.watch, now, c, 'watch');
+      h += foldHtml('past', 'GONE BY', 'not played or skipped', past, now, c, '');
     }
     if (dayAll.length || need.length) {
       h += '<div class="twin"><button class="tile' + (need.length ? ' red' : '') + '" data-act="results" data-tab="need"><b>' + need.length + '</b><span>RESULTS NEEDED</span></button>' +
@@ -403,6 +439,10 @@
     var out = [];
     if (r.prio === 'TOP') out.push('<span class="chip gold">TOP</span>');
     else if (r.prio === 'HIGH') out.push('<span class="chip silver">HIGH</span>');
+    else if (r.prio && LB.inFocus(r)) out.push('<span class="chip dim">' + esc(r.prio) + '</span>');
+    if (r.abandoned) { out.push('<span class="chip orange">ABANDONED</span>'); return out.join(''); }
+    if (r.skipped) out.push('<span class="chip dim">SKIPPED</span>');
+    else if (st.k === 'result' && !LB.played(r)) out.push('<span class="chip dim">NOT PLAYED</span>');
     if (st.k === 'odds_now') out.push('<span class="chip red">ODDS NOW</span>');
     else if (st.k === 'card_now') out.push('<span class="chip ' + (st.overdue ? 'red' : 'blue') + '">' + (st.overdue ? 'CARD OVERDUE' : 'CARD NOW') + '</span>');
     else if (st.k === 'card_in') out.push('<span class="chip blue">CARD IN ' + LB.fmtCountdown(st.inMin * 60000) + '</span>');
@@ -412,15 +452,20 @@
     var ag = LB.agreement(r), g3 = ag.filter(function (x) { return x.n === 3; }).length, g2 = ag.filter(function (x) { return x.n === 2; }).length;
     if (g3) out.push('<span class="chip gold">' + I.star + ' ' + g3 + ' ALL-AGREE</span>');
     else if (g2) out.push('<span class="chip silver">' + g2 + ' PART-AGREE</span>');
-    if (r.bets && r.bets.length) out.push('<span class="chip green">BET ' + money(LB.raceStaked(r)) + '</span>');
-    if (r.muted) out.push('<span class="chip dim">MUTED</span>');
+    if (r.bets && r.bets.length) {
+      var live = r.bets.filter(function (b) { return !(LB.betPnl(b, r) === 0 && !LB.resultOk(r)); });
+      out.push(live.length ? '<span class="chip green">BET ' + money(live.reduce(function (a, b) { return a + LB.num(b.stake); }, 0)) + '</span>' : '<span class="chip dim">BET VOID</span>');
+    }
+    if (r.nr && r.nr.length) out.push('<span class="chip orange">NR #' + r.nr.join(' #') + '</span>');
+    if (LB.inFocus(r) && !LB.followed(r) && !r.skipped && st.k !== 'result' && st.k !== 'done') out.push('<span class="chip dim">ALERTS OFF</span>');
     return out.join('');
   }
   function raceRow(r, now, c) {
     var st = LB.stage(r, now, c), hot = st.k === 'odds_now' ? ' hot' : st.k === 'card_now' ? ' due' : '';
     return '<button class="row' + hot + '" data-act="open" data-id="' + r.id + '"><span class="t">' + LB.hhmm(LB.jumpAt(r)) + '</span>' +
       '<span class="main"><span class="nm">' + esc(raceName(r)) + '<small>' + ccode(r.country) + '</small></span><span class="chips">' + stageChips(r, st) + '</span></span>' +
-      '<span class="cd' + (st.k === 'odds_now' ? ' red' : '') + '" data-cd="' + r.id + '">' + LB.fmtCountdown(LB.jumpAt(r) - now) + '</span></button>';
+      (st.k === 'result' || st.k === 'skip' && LB.jumpAt(r) < now ? '<span class="cd" style="color:var(--faint);font-size:12px">RAN</span>' :
+      '<span class="cd' + (st.k === 'odds_now' ? ' red' : '') + '" data-cd="' + r.id + '">' + LB.fmtCountdown(LB.jumpAt(r) - now) + '</span>') + '</button>';
   }
 
   /* ---------- RACE ---------- */
@@ -434,7 +479,10 @@
     h += '<div class="meta"><button class="mbtn gold" data-act="tier">PAY TOP ' + tierN + (r.pay ? ' · SET' : ' · AUTO') + '</button>' +
       '<button class="mbtn" data-act="runners">' + (r.runners ? r.runners + ' RUNNERS' : 'SET RUNNERS') + '</button>' +
       (r.skipped ? '<button class="mbtn red" data-act="skip">SKIPPED · UNDO</button>' : '') +
-      (r.muted ? '<button class="mbtn" data-act="mute">ALERTS MUTED</button>' : '') + '</div>';
+      (r.abandoned || LB.resultOk(r) ? '' : '<button class="mbtn' + (LB.followed(r) ? ' on' : '') + '" data-act="follow">' + (LB.followed(r) ? '🔔 ALERTS ON' : '🔕 ALERTS OFF') + '</button>') +
+      (r.prio ? '<span class="mbtn" style="pointer-events:none">' + esc(r.prio) + '</span>' : '') +
+      (r.nr || []).map(function (h) { return '<button class="mbtn nr" data-act="nrDel" data-h="' + esc(h) + '">NR #' + esc(h) + ' ✕</button>'; }).join('') + '</div>';
+    if (r.abandoned) h += '<div class="voidbar">' + I.warn + '<div><b>ABANDONED</b><div style="font-size:12px;color:var(--muted);margin-top:2px">All bets void — stakes back in your balance. Not counted in stats.</div></div><button data-act="abandon">UNDO</button></div>';
     // agreement tiles
     var ag = LB.agreement(r).filter(function (x) { return x.n >= 2; });
     if (ag.length) {
@@ -458,7 +506,7 @@
     var cls = 'fld' + (f === 'h' ? '' : ' o');
     var v = d[f];
     if (!v) cls += ' ph';
-    if (f === 'h' && v) { var lv = LB.agreeLevel(r, v); if (lv >= 2) cls += ' ag' + lv; }
+    if (f === 'h' && v) { if (LB.isNR(r, v)) cls += ' nr'; else { var lv = LB.agreeLevel(r, v); if (lv >= 2) cls += ' ag' + lv; } }
     if (S.kp && S.kp.kind === 'slot' && S.kp.raceId === r.id) {
       var cur = S.kp.fields[S.kp.i];
       if (cur && cur.eng === S.kp.eng && cur.slot === d._k && cur.f === f) cls += ' focus';
@@ -483,14 +531,14 @@
         h += '<div class="bets">';
         if (bets.length) {
           bets.forEach(function (b) {
-            var p = LB.betPnl(b, r), cls = p === null ? '' : p > 0 ? ' win' : ' loss';
-            h += '<button class="placed' + cls + '" data-act="bet" data-b="' + b.id + '">' + b.type + ' ' + money(b.stake) + (p !== null ? ' · ' + money(p, true) : b.wo || b.po ? ' @ ' + esc(b.type === 'PLACE' ? b.po : b.wo) : '') + '</button>';
+            var p = LB.betPnl(b, r), vd = p === 0 && (r.abandoned || LB.isNR(r, b.h)), cls = vd ? ' void' : p === null ? '' : p > 0 ? ' win' : ' loss';
+            h += '<button class="placed' + cls + '" data-act="bet" data-b="' + b.id + '">' + b.type + ' ' + money(b.stake) + (vd ? ' · VOID' : p !== null ? ' · ' + money(p, true) : b.wo || b.po ? ' @ ' + esc(b.type === 'PLACE' ? b.po : b.wo) : '') + '</button>';
           });
         }
         ['WIN', 'PLACE', 'EW'].forEach(function (t) {
           h += '<button class="bb" data-act="newBet" data-e="' + ek + '" data-s="' + s.k + '" data-t="' + t + '"' + (d.h ? '' : ' disabled') + '>' + t + '</button>';
         });
-        if (out && out !== 'X') h += '<span class="oc ' + out + '">' + (out === 'W' ? 'WON' : out === 'P' ? 'PLACED' : 'MISS') + '</span>';
+        if (out && out !== 'X') h += '<span class="oc ' + out + '">' + (out === 'W' ? 'WON' : out === 'P' ? 'PLACED' : out === 'N' ? 'NON-RUNNER · VOID' : 'MISS') + '</span>';
         h += '</div>';
       }
       h += '</div>';
@@ -500,8 +548,8 @@
     var multis = (r.bets || []).filter(function (b) { return b.type === 'ANY'; });
     if (multis.length) {
       h += '<div class="pad stack" style="margin-top:4px">' + multis.map(function (b) {
-        var p = LB.betPnl(b, r);
-        return '<button class="placed' + (p === null ? '' : p > 0 ? ' win' : ' loss') + '" style="min-height:44px" data-act="bet" data-b="' + b.id + '">ANY-WINS MULTI ' + b.legs.map(function (l) { return '#' + l.h; }).join(' ') + ' · ' + money(b.stake) + ' @ ' + esc(b.co || '?') + (p !== null ? ' · ' + money(p, true) : '') + '</button>';
+        var p = LB.betPnl(b, r), vd = p === 0 && (r.abandoned || b.legs.every(function (l) { return LB.isNR(r, l.h); }));
+        return '<button class="placed' + (vd ? ' void' : p === null ? '' : p > 0 ? ' win' : ' loss') + '" style="min-height:44px" data-act="bet" data-b="' + b.id + '">ANY-WINS MULTI ' + b.legs.map(function (l) { return (LB.isNR(r, l.h) ? 'NR' : '#') + l.h; }).join(' ') + ' · ' + money(b.stake) + ' @ ' + esc(b.co || '?') + (vd ? ' · VOID' : p !== null ? ' · ' + money(p, true) : '') + '</button>';
       }).join('') + '</div>';
     }
     return h;
@@ -512,8 +560,9 @@
     SLOTS.forEach(function (s, i) {
       h += '<div class="gr' + (i >= n ? ' off' : '') + '"><span class="sl">' + s.n + '</span>' + ENGINES.map(function (e) {
         var d = r.picks[e.k][s.k], lv = d.h && i < n ? LB.agreeLevel(r, d.h) : 0, out = LB.outcome(r, e.k, i);
-        return '<div class="c"><button class="h ' + (d.h ? (lv >= 2 ? 'ag' + lv : '') : 'e') + '" data-act="fld" data-e="' + e.k + '" data-s="' + s.k + '" data-f="h"' + (i >= n ? ' disabled' : '') + '>' + (d.h ? esc(d.h) : '·') + '</button>' +
-          '<span class="o">' + (out && out !== 'X' ? (out === 'W' ? 'WON' : out === 'P' ? 'PLACED' : 'MISS') : (d.wo ? esc(d.wo) : '')) + '</span></div>';
+        if (d.h && LB.isNR(r, d.h)) lv = -1;
+        return '<div class="c"><button class="h ' + (d.h ? (lv === -1 ? 'nr' : lv >= 2 ? 'ag' + lv : '') : 'e') + '" data-act="fld" data-e="' + e.k + '" data-s="' + s.k + '" data-f="h"' + (i >= n ? ' disabled' : '') + '>' + (d.h ? esc(d.h) : '·') + '</button>' +
+          '<span class="o">' + (out && out !== 'X' ? (out === 'W' ? 'WON' : out === 'P' ? 'PLACED' : out === 'N' ? 'NR' : 'MISS') : (d.wo ? esc(d.wo) : '')) + '</span></div>';
       }).join('') + '</div>';
     });
     h += '</div><div class="legend"><span><i style="background:var(--gold)"></i>All 3 agree</span><span><i style="background:var(--silver)"></i>2 agree</span><span><i style="background:var(--panel2);border:1px solid var(--line2)"></i>Single pick</span></div>';
@@ -521,6 +570,7 @@
   }
   function resultHtml(r) {
     var st = LB.stage(r, Date.now(), cfg());
+    if (r.abandoned) return '';
     if (!LB.resultOk(r)) {
       if (st.k !== 'result') return '<div class="pad" style="margin-top:12px"><button class="btn ghost full" data-act="result">Enter result early</button></div>';
       return '<div class="resbox need"><div style="display:flex;justify-content:space-between;align-items:center"><span class="cap" style="color:var(--red-soft)">RESULT NEEDED</span><span class="cap">TOP ' + LB.tier(r) + ' PAYS</span></div><button class="btn gold full" data-act="result">Enter finishing order</button></div>';
@@ -536,8 +586,8 @@
       var tot = 0, cnt = 0;
       h += '<div class="score"><span class="e" style="color:var(--c-' + e.k + ')">' + e.n + '</span><span class="cells">' + SLOTS.map(function (s, i) {
         var oc = LB.outcome(r, e.k, i), d = r.picks[e.k][s.k];
-        if (oc && oc !== 'X') { cnt++; if (oc !== 'L') tot++; }
-        return '<span class="' + (oc || '') + '">' + (d.h && oc !== 'X' ? esc(d.h) : '') + '</span>';
+        if (oc && oc !== 'X' && oc !== 'N') { cnt++; if (oc !== 'L') tot++; }
+        return '<span class="' + (oc || '') + '">' + (d.h && oc !== 'X' ? esc(oc === 'N' ? 'NR' : d.h) : '') + '</span>';
       }).join('') + '</span><span class="tot">' + tot + '/' + cnt + '</span></div>';
     });
     var ag = LB.agreement(r).filter(function (x) { return x.n >= 2; });
@@ -565,7 +615,7 @@
     var h = '<header class="hdr"><div><div class="cap">RESULTS</div><div class="daynav" style="margin-top:2px"><button data-act="day" data-n="-1" aria-label="Previous day">' + I.left + '</button><span class="d">' + fmtDay(S.ui.day) + '</span><button data-act="day" data-n="1" aria-label="Next day">' + I.right + '</button></div></div><div class="spacer"></div><div class="clock mono" data-clock style="font-size:20px">' + clockHtml() + '</div></header><div class="scroll">';
     h += '<div class="seg"><button class="' + (tab === 'need' ? 'on red' : '') + '" data-act="resTab" data-t="need">NEEDED · ' + need.length + '</button><button class="' + (tab === 'fin' ? 'on' : '') + '" data-act="resTab" data-t="fin">FINISHED · ' + fin.length + '</button></div>';
     if (tab === 'need') {
-      if (!need.length) h += '<div class="empty"><b>All results entered</b>Races appear here as soon as they jump.</div>';
+      if (!need.length) h += '<div class="empty"><b>All results entered</b>Races you played (picks or bets) appear here as soon as they jump. Races you didn\'t play never ask for a result.</div>';
       else {
         h += '<div class="sec"><span class="cap">NOT ENTERED YET · OLDEST FIRST</span></div><div class="pad stack">';
         need.forEach(function (r) {
@@ -580,10 +630,11 @@
       else {
         h += '<div class="sec"><span class="cap">NEWEST FIRST</span><span class="cap">HITS</span></div><div class="pad stack">';
         fin.forEach(function (r) {
+          if (!LB.resultOk(r)) { h += '<button class="fin" data-act="open" data-id="' + r.id + '"><span class="main"><b>' + esc(raceName(r)) + '</b><span style="color:var(--orange)">ABANDONED · BETS VOID</span></span></button>'; return; }
           h += '<button class="fin" data-act="open" data-id="' + r.id + '"><span class="main"><b>' + esc(raceName(r)) + '</b><span>' + esc(r.result.order.join('-')) + ' · TOP ' + LB.tier(r) + '</span></span>' +
             ENGINES.map(function (e) {
               if (!LB.hasPicks(r, e.k)) return '';
-              var t = 0, c = 0; SLOTS.forEach(function (s, i) { var o = LB.outcome(r, e.k, i); if (o && o !== 'X') { c++; if (o !== 'L') t++; } });
+              var t = 0, c = 0; SLOTS.forEach(function (s, i) { var o = LB.outcome(r, e.k, i); if (o && o !== 'X' && o !== 'N') { c++; if (o !== 'L') t++; } });
               return '<span class="eh" style="color:var(--c-' + e.k + ')">' + e.s + ' ' + t + '/' + c + '</span>';
             }).join('') + '</button>';
         });
@@ -863,10 +914,15 @@
     return h;
   }
   function raceMenuSheet(r) {
+    var on = LB.followed(r);
     var body = '<div><span class="lbl">RACE DELAYED? MOVE JUMP TIME</span><div class="opts">' + [-1, 1, 2, 5].map(function (n) { return '<button class="opt" data-act="delay" data-n="' + n + '">' + (n > 0 ? '+' : '−') + Math.abs(n) + ' MIN</button>'; }).join('') + (r.delay ? '<button class="opt" data-act="delay" data-n="0">RESET</button>' : '') + '</div>' + (r.delay ? '<div class="hint" style="margin-top:6px">Currently +' + r.delay + ' min. Alerts move with it.</div>' : '') + '</div>' +
-      '<div class="setrow"><div class="t"><b>Skip this race</b><span>Removes it from the queue and stops its alerts.</span></div><button class="tog' + (r.skipped ? ' on' : '') + '" data-act="skip" aria-label="Skip race"></button></div>' +
-      '<div class="setrow"><div class="t"><b>Mute alerts for this race</b><span>Keeps it in the queue, no sounds.</span></div><button class="tog' + (r.muted ? ' on' : '') + '" data-act="mute" aria-label="Mute race"></button></div>' +
-      '<div class="setrow"><div class="t"><b>Mute the whole meeting</b><span>All of today\'s ' + esc(r.track) + ' races.</span></div><button class="btn ghost sm" data-act="muteMeeting">Mute</button></div>';
+      '<div class="setrow"><div class="t"><b>Alerts for this race</b><span>' + (on ? 'On — chime at T−' + S.set.card + ', alarm at T−' + S.set.odds + '.' : 'Off — no sounds. ' + (LB.group(r) !== 'focus' ? 'Turn on to move it into your focus list.' : '')) + '</span></div><button class="tog' + (on ? ' on' : '') + '" data-act="follow" aria-label="Alerts for this race"></button></div>' +
+      '<div class="setrow"><div class="t"><b>Alerts off for the whole meeting</b><span>All of this day\'s ' + esc(r.track) + ' races.</span></div><button class="btn ghost sm" data-act="muteMeeting">Turn off</button></div>' +
+      '<span class="lbl" style="margin-top:6px">CHANGES ON THE DAY</span>' +
+      '<div class="setrow"><div class="t"><b>Non-runner</b><span>' + (r.nr && r.nr.length ? 'Scratched: #' + r.nr.join(' #') + '. ' : '') + 'Bets on it are void, its slots don\'t count as a miss.</span></div><button class="btn ghost sm" data-act="nrAdd">Add</button></div>' +
+      '<div class="setrow"><div class="t"><b>Race abandoned</b><span>All bets void, stakes back. Not counted in stats.</span></div><button class="tog' + (r.abandoned ? ' on' : '') + '" data-act="abandon" aria-label="Race abandoned"></button></div>' +
+      '<div class="setrow"><div class="t"><b>Whole meeting abandoned</b><span>This race and every ' + esc(r.track) + ' race still to run today.</span></div><button class="btn ghost sm" data-act="abandonMeeting">Abandon</button></div>' +
+      '<div class="setrow"><div class="t"><b>Skip this race</b><span>Not playing it. Moves to “Gone by”, no alerts.</span></div><button class="tog' + (r.skipped ? ' on' : '') + '" data-act="skip" aria-label="Skip race"></button></div>';
     return sheetWrap(esc(raceName(r)), body, '<button class="btn ghost" style="flex:1" data-act="editRace">Edit race</button><button class="btn ghost" style="flex:1;color:var(--red-soft)" data-act="delRace">Delete</button>');
   }
   function editRaceSheet(r) {
@@ -942,7 +998,7 @@
 
   /* ---------- ALERTS ---------- */
   function currentAlert() {
-    S.alerts = S.alerts.filter(function (a) { var r = getRace(a.id); return r && !r.skipped && !LB.resultOk(r) && LB.jumpAt(r) - Date.now() > -60000; });
+    S.alerts = S.alerts.filter(function (a) { var r = getRace(a.id); return r && LB.followed(r) && !LB.resultOk(r) && LB.jumpAt(r) - Date.now() > -60000; });
     S.alerts.sort(function (a, b) { return LB.jumpAt(getRace(a.id)) - LB.jumpAt(getRace(b.id)); });
     return S.alerts[0] || null;
   }
@@ -950,7 +1006,7 @@
     var r = getRace(a.id), now = Date.now();
     var miss = ENGINES.filter(function (e) { return !LB.hasPicks(r, e.k); });
     var ag = LB.agreement(r).filter(function (x) { return x.n >= 2; });
-    var nextUp = LB.upcoming(S.races, S.ui.day, now, cfg()).filter(function (x) { return x.id !== r.id; })[0];
+    var nextUp = LB.upcoming(S.races, S.ui.day, now, cfg()).filter(function (x) { return x.id !== r.id && LB.followed(x); })[0];
     var h = '<div class="alert odds"><div class="ah"><span>ALERT · T−' + S.set.odds + '</span><span>' + (S.alerts.length > 1 ? (S.alerts.length - 1) + ' MORE WAITING' : 'REPEATS EVERY 30 S') + '</span></div>' +
       '<div class="ring"><small>TO JUMP</small><div class="cd" data-cd="' + r.id + '">' + LB.fmtCountdown(LB.jumpAt(r) - now) + '</div><small>' + LB.hhmm(LB.jumpAt(r)) + ' IST</small></div>' +
       '<div class="what"><div class="job">FINAL ODDS CHECK</div><b>' + esc(raceName(r)) + '</b><span>' + esc(metaLine(r)) + '</span></div>' +
@@ -978,28 +1034,32 @@
   function checkAlerts() {
     var now = Date.now(), due = LB.dueAlerts(S.races, S.ui.day, now, cfg());
     if (S.ui.day !== LB.defaultDay(now)) due = due.concat(LB.dueAlerts(S.races, LB.defaultDay(now), now, cfg()));
-    var changed = false;
+    var changed = false, wantAlarm = false, wantChime = false;
     due.forEach(function (x) {
       var r = x.r;
       if (x.k === 'odds') {
         r.fired.o = now; r.fired.c = r.fired.c || now;
         if (!S.alerts.some(function (a) { return a.id === r.id; })) S.alerts.push({ id: r.id, k: 'odds', last: now });
         S.cardBanners = S.cardBanners.filter(function (id) { return id !== r.id; });
-        Sound.alarm(); vib(alarmVib());
+        wantAlarm = true;
       } else {
         r.fired.c = now;
         if (S.cardBanners.indexOf(r.id) < 0) S.cardBanners.push(r.id);
-        Sound.chime(); vib([120, 90, 120, 1100, 120, 90, 120, 1100, 120, 90, 120]);
+        wantChime = true;
       }
       persist(r); changed = true;
     });
+    // Several races due together (opening the app late, busy Saturday) → one sound, not a pile-up
+    if (wantAlarm) { Sound.alarm(); vib(alarmVib()); }
+    else if (wantChime) { Sound.chime(); vib([120, 90, 120, 1100, 120, 90, 120, 1100, 120, 90, 120]); }
+    if (wantAlarm) { var cur = currentAlert(); if (cur) cur.last = now; }
     // repeat alarm every 30 s while the odds alert is up
     var a = currentAlert();
     if (a && now - a.last >= 30000) { a.last = now; Sound.alarm(); vib(alarmVib()); }
     if (!a && S.alerts.length === 0 && changed === false) { /* nothing */ }
     // drop card banners once picks are in or race moved on
     var before = S.cardBanners.length;
-    S.cardBanners = S.cardBanners.filter(function (id) { var r = getRace(id); return r && !LB.hasPicks(r) && !r.skipped && LB.stage(r, now, cfg()).k === 'card_now'; });
+    S.cardBanners = S.cardBanners.filter(function (id) { var r = getRace(id); return r && !LB.hasPicks(r) && LB.followed(r) && LB.stage(r, now, cfg()).k === 'card_now'; });
     var shrink = S.cardBanners.length && S.bannerAt && !S.bannerMini && now - S.bannerAt > 20000;
     if (shrink) S.bannerMini = true;
     if (!S.cardBanners.length) S.bannerMini = false;
@@ -1014,8 +1074,9 @@
     noop: function () { },
     arm: armRaceDay,
     nav: function (el) { S.ui.view = el.dataset.v; if (el.dataset.v === 'lab') loadAll().then(render); render(); },
-    day: function (el) { S.ui.day = shiftDay(S.ui.day, +el.dataset.n); S.ui.showAll = false; render(); },
+    day: function (el) { S.ui.day = shiftDay(S.ui.day, +el.dataset.n); S.ui.showAll = false; S.ui.open = {}; render(); },
     showAll: function () { S.ui.showAll = !S.ui.showAll; render(); },
+    fold: function (el) { var k = el.dataset.k; S.ui.open[k] = !S.ui.open[k]; render(); },
     open: function (el) { S.ui.raceId = el.dataset.id; S.ui.view = 'race'; var r = getRace(el.dataset.id); if (r && S.ui.eng !== 'grid' && LB.enginesWithPicks(r).length === 3) S.ui.eng = 'grid'; else if (S.ui.eng === 'grid' && r && LB.enginesWithPicks(r).length < 3) S.ui.eng = 'claude'; render(); var sc = root.querySelector(wide() ? '.col-b .scroll' : '.scroll'); if (sc) sc.scrollTop = 0; },
     back: function () { S.ui.view = 'home'; render(); },
     results: function (el) { S.ui.view = 'results'; S.ui.resTab = el.dataset.tab; render(); },
@@ -1065,8 +1126,49 @@
     raceMenu: function () { openSheet('raceMenu', { raceId: S.ui.raceId }); },
     delay: function (el) { var r = getRace(sheetData.raceId || S.ui.raceId), n = +el.dataset.n; r.delay = n === 0 ? 0 : (r.delay || 0) + n; r.fired = { c: 0, o: 0 }; persist(r); render(); toast(n === 0 ? 'Time reset' : 'Jump moved to ' + LB.hhmm(LB.jumpAt(r))); },
     skip: function () { var r = getRace(sheetData.raceId || S.ui.raceId); r.skipped = !r.skipped; persist(r); S.alerts = S.alerts.filter(function (a) { return a.id !== r.id; }); render(); },
-    mute: function () { var r = getRace(sheetData.raceId || S.ui.raceId); r.muted = !r.muted; persist(r); render(); },
-    muteMeeting: function () { var r = getRace(sheetData.raceId); LB.dayRaces(S.races, r.day).forEach(function (x) { if (x.track === r.track && x.country === r.country) { x.muted = true; persist(x); } }); closeSheet(); toast('All ' + r.track + ' races muted'); },
+    follow: function () {
+      var r = getRace(sheetData.raceId || S.ui.raceId); if (!r) return;
+      var was = LB.followed(r);
+      r.follow = !was; r.muted = false; if (!was) r.skipped = false;
+      if (was) { S.alerts = S.alerts.filter(function (a) { return a.id !== r.id; }); S.cardBanners = S.cardBanners.filter(function (id) { return id !== r.id; }); }
+      persist(r); render(); toast(was ? 'Alerts off for ' + raceName(r) : 'Alerts on for ' + raceName(r) + (LB.group(r) !== 'focus' ? ' — now in your focus list' : ''));
+    },
+    muteMeeting: function () { var r = getRace(sheetData.raceId); LB.dayRaces(S.races, r.day).forEach(function (x) { if (x.track === r.track && x.country === r.country) { x.follow = false; persist(x); S.alerts = S.alerts.filter(function (a) { return a.id !== x.id; }); } }); closeSheet(); toast('Alerts off for all ' + r.track + ' races'); },
+    nrAdd: function () {
+      var r = getRace(sheetData.raceId || S.ui.raceId); if (!r) return;
+      S.sheet = null; sheetData = {};
+      openNumKp({ label: 'NON-RUNNER · HORSE NUMBER', what: raceName(r), mode: 'int', value: '', ok: 'Mark non-runner', done: function (v) {
+        var h = String(parseInt(v, 10) || ''); if (!h) return;
+        r.nr = r.nr || []; if (r.nr.indexOf(h) > -1) { render(); return; }
+        var before = LB.tier(r);
+        r.nr.push(h); r.nr.sort(function (a, b) { return a - b; });
+        if (r.runners) r.runners = Math.max(1, r.runners - 1);
+        persist(r); render();
+        var voids = (r.bets || []).filter(function (b) { return b.type === 'ANY' ? b.legs.some(function (l) { return l.h === h; }) : b.h === h; }).length;
+        toast('#' + h + ' non-runner' + (voids ? ' · ' + voids + ' bet' + (voids > 1 ? 's' : '') + ' void' : '') + (LB.tier(r) !== before ? ' · now pays top ' + LB.tier(r) : '') + (r.runners ? ' · ' + r.runners + ' runners' : ''));
+      } });
+    },
+    nrDel: function (el) {
+      var r = getRace(S.ui.raceId), h = el.dataset.h; if (!r || !r.nr) return;
+      r.nr = r.nr.filter(function (x) { return x !== h; }); if (r.runners) r.runners++;
+      persist(r); render(); toast('#' + h + ' back in the race');
+    },
+    abandon: function () {
+      var r = getRace(sheetData.raceId || S.ui.raceId); if (!r) return;
+      r.abandoned = !r.abandoned;
+      S.alerts = S.alerts.filter(function (a) { return a.id !== r.id; }); S.cardBanners = S.cardBanners.filter(function (id) { return id !== r.id; });
+      persist(r); render();
+      if (r.abandoned) toast(raceName(r) + ' abandoned · bets void', function () { r.abandoned = false; persist(r); render(); });
+    },
+    abandonMeeting: function () {
+      var r = getRace(sheetData.raceId); if (!r) return;
+      // Only races that haven't run yet (plus this one): races already run earlier on the card stand
+      var now = Date.now();
+      var hit = LB.dayRaces(S.races, r.day).filter(function (x) { return x.track === r.track && x.country === r.country && !LB.resultOk(x) && !x.abandoned && (x.id === r.id || LB.jumpAt(x) > now - 60000); });
+      hit.forEach(function (x) { x.abandoned = true; persist(x); S.alerts = S.alerts.filter(function (a) { return a.id !== x.id; }); });
+      closeSheet();
+      toast(hit.length + ' ' + r.track + ' races abandoned', function () { hit.forEach(function (x) { x.abandoned = false; persist(x); }); render(); });
+    },
     editRace: function () { openSheet('editRace', { raceId: sheetData.raceId || S.ui.raceId }); },
     erCountry: function (el) { sheetData.country = el.dataset.c; render(); },
     erSave: function () {
@@ -1219,11 +1321,29 @@
     }
     if (!data || !(Array.isArray(data) || Array.isArray(data.races))) { toast('No races found in that file — is it the race planner .json file?'); return; }
     if (Array.isArray(data)) data = { races: data };
-    var res = LB.importDay(S.races, data, S.ui.day);
+    var res = LB.importDay(S.races, data, S.ui.day), now = Date.now();
+    if (!res.added.length && !res.updated.length && !res.skipped) { toast('No races found in that file — is it the race planner .json file?'); return; }
     res.added.forEach(function (r) { S.races.push(r); persist(r); });
-    if (res.added.length) S.ui.day = res.added[0].day;
+    res.updated.forEach(function (u) { persist(u.r); S.alerts = S.alerts.filter(function (a) { return a.id !== u.r.id || u.ch.indexOf('time') < 0; }); });
+    // Remember which file the day came from (shown on home)
+    S.set.files = S.set.files || {};
+    S.set.files[res.day] = { by: res.info.by, at: res.info.at, n: LB.dayRaces(S.races, res.day).length, t: now };
+    Object.keys(S.set.files).sort().slice(0, -10).forEach(function (k) { delete S.set.files[k]; });
+    saveSettings();
+    // Stay on today while today still has races to run; a file for another day doesn't pull you away
+    var today = LB.defaultDay(now), moved = false;
+    if (res.day !== S.ui.day) {
+      var todayBusy = LB.upcoming(S.races, S.ui.day, now, cfg()).length > 0 && S.ui.day === today;
+      if (!todayBusy) { S.ui.day = res.day; S.ui.open = {}; moved = true; }
+    }
     S.sheet = null; render();
-    toast(res.added.length + ' races loaded' + (res.skipped ? ' · ' + res.skipped + ' already in' : '') + (res.bad ? ' · ' + res.bad + ' unreadable' : ''));
+    var gone = LB.passed(S.races, res.day, now, cfg()).length;
+    var msg = (res.added.length ? res.added.length + ' races loaded' : res.updated.length ? 'No new races' : 'All ' + res.skipped + ' races already in — nothing changed') +
+      (res.updated.length ? ' · ' + res.updated.length + ' updated' : '') +
+      (res.bad ? ' · ' + res.bad + ' unreadable' : '') +
+      (gone && res.day === S.ui.day ? ' · ' + gone + ' already gone by (hidden)' : '') +
+      (res.day !== S.ui.day ? ' · for ' + fmtDay(res.day) + ' — tap › to see' : '');
+    toast(msg);
   }
   function download(name, text) {
     var b = new Blob([text], { type: 'application/json' }), a = document.createElement('a');
@@ -1402,7 +1522,7 @@
     return LB.dayRaces(S.races, S.ui.day).map(function (r) {
       var st = LB.stage(r, now, c);
       var m = st.inMin !== undefined ? Math.floor(st.inMin) : '';
-      return st.k + (st.overdue ? 'o' : '') + m;
+      return st.k + (st.overdue ? 'o' : '') + m + (LB.followed(r) ? 'f' : '') + (LB.inFocus(r) ? 'i' : '');
     }).join(',') + '|' + LB.resultsNeeded(S.races, now, c).length;
   }
   function tick() {
@@ -1426,7 +1546,7 @@
     if (document.visibilityState === 'visible') {
       if (S.armed) requestWake();
       // catch-up: races whose odds window passed while away
-      var now = Date.now(), missed = LB.dayRaces(S.races, S.ui.day).filter(function (r) { return !r.skipped && !r.muted && !r.fired.o && LB.jumpAt(r) < now - 60000 && LB.jumpAt(r) > now - 30 * 60000 && !LB.resultOk(r); });
+      var now = Date.now(), missed = LB.dayRaces(S.races, S.ui.day).filter(function (r) { return LB.followed(r) && !r.fired.o && LB.jumpAt(r) < now - 60000 && LB.jumpAt(r) > now - 30 * 60000 && !LB.resultOk(r); });
       if (missed.length) { missed.forEach(function (r) { r.fired.o = now; persist(r); }); toast('Missed while away: ' + missed.map(raceName).join(', ')); }
       tick(); render();
     }
@@ -1446,7 +1566,7 @@
   // Start fast: only the last 7 days in memory, plus any older race (up to 60 days) still waiting for a result
   var recent = daysAgo(7);
   Promise.all([DB.since(daysAgo(60)), DB.get('settings'), DB.get('tracks')]).then(function (res) {
-    S.races = (res[0] || []).filter(function (r) { return !r.deleted && (r.day >= recent || (!LB.resultOk(r) && !r.skipped && LB.hasPicks(r))); });
+    S.races = (res[0] || []).filter(function (r) { return !r.deleted && (r.day >= recent || (!LB.resultOk(r) && !r.skipped && !r.abandoned && LB.played(r))); });
     if (res[1]) Object.assign(S.set, res[1]);
     if (res[2]) S.tracks = res[2];
   }).catch(function () { toast('Storage unavailable — data will not be saved'); }).then(function () {

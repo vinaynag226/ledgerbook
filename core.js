@@ -118,6 +118,29 @@
     return ENGINES.filter(function (e) { return hasPicks(r, e.k); }).map(function (e) { return e.k; });
   }
   function resultOk(r) { return !!(r.result && r.result.ok && r.result.order && r.result.order.length); }
+  // Non-runners (scratched horses) marked by the user
+  function isNR(r, h) { return !!(h && r.nr && r.nr.indexOf(String(parseInt(h, 10))) > -1); }
+
+  /* ---------- race quality and following ---------- */
+  // Planner priority → which list a race lives in. No priority (manual race, simple file) = Focus.
+  function group(r) {
+    var p = String(r.prio || '').toUpperCase();
+    if (!p || p === 'TOP' || p === 'HIGH') return 'focus';
+    if (p === 'MEDIUM' || p === 'MED') return 'medium';
+    return 'watch'; // WATCH, LOW, anything else = high volatility
+  }
+  // Played = the user has done something with it (picks or bets)
+  function played(r) { return hasPicks(r) || !!(r.bets && r.bets.length); }
+  // Shown in the Focus list: TOP/HIGH, anything played, anything the user switched alerts on for
+  function inFocus(r) { return group(r) === 'focus' || played(r) || r.follow === true; }
+  // Gets T-15 / T-3 alerts
+  function followed(r) {
+    if (r.abandoned || r.skipped) return false;
+    if (r.follow === false) return false;
+    if (r.follow === true) return true;
+    if (r.muted) return false; // older data
+    return inFocus(r);
+  }
 
   /* ---------- agreement ---------- */
   // Horses picked by 2+ engines in any active slot (a horse counts once per engine)
@@ -129,7 +152,7 @@
         if (!slotActive(r, i)) return;
         var d = r.picks[e.k] && r.picks[e.k][s.k];
         var h = d && String(d.h || '').trim();
-        if (!h || seen[h]) return;
+        if (!h || seen[h] || isNR(r, h)) return;
         seen[h] = 1;
         if (!map[h]) map[h] = { h: h, engines: [], nm: '' };
         map[h].engines.push(e.k);
@@ -155,11 +178,13 @@
     var i = r.result.order.indexOf(String(parseInt(h, 10)));
     return i < 0 ? 0 : i + 1;
   }
-  // 'W' won, 'P' placed in paid places, 'L' lost, 'X' slot not used, null not settled
+  // 'W' won, 'P' placed in paid places, 'L' lost, 'X' slot not used, 'N' non-runner (not a miss), null not settled
   function outcome(r, ek, idx) {
     if (!slotActive(r, idx)) return 'X';
     var d = r.picks[ek] && r.picks[ek][SLOTS[idx].k];
-    if (!d || !d.h || !resultOk(r)) return null;
+    if (!d || !d.h) return null;
+    if (isNR(r, d.h)) return 'N';
+    if (r.abandoned || !resultOk(r)) return null;
     var pos = position(r, d.h);
     if (pos === 1) return 'W';
     if (pos > 0 && pos <= tier(r)) return 'P';
@@ -170,12 +195,17 @@
   // Returns profit (positive) or loss (negative); null if not settled yet or odds missing
   function betPnl(b, r) {
     var st = num(b.stake);
-    if (!st || !resultOk(r)) return null;
+    if (!st) return null;
+    // Void bets: stake comes back (abandoned race, or the horse was a non-runner)
+    if (r.abandoned) return 0;
+    if (b.type === 'ANY') { if ((b.legs || []).every(function (l) { return isNR(r, l.h); })) return 0; }
+    else if (isNR(r, b.h)) return 0;
+    if (!resultOk(r)) return null;
     if (b.ret !== null && b.ret !== undefined && b.ret !== '') return round2(num(b.ret) - st);
     var paid = tier(r);
     if (b.type === 'ANY') {
       var co = num(b.co);
-      var anyWon = (b.legs || []).some(function (l) { return position(r, l.h) === 1; });
+      var anyWon = (b.legs || []).some(function (l) { return !isNR(r, l.h) && position(r, l.h) === 1; });
       if (!anyWon) return -st;
       return co > 1 ? round2(st * (co - 1)) : null;
     }
@@ -217,6 +247,7 @@
     var cardMin = cfg.card || 15, oddsMin = cfg.odds || 3;
     var rem = (jumpAt(r) - now) / 60000;
     if (resultOk(r)) return { k: 'done', rem: rem };
+    if (r.abandoned) return { k: 'void', rem: rem };
     if (r.skipped) return { k: 'skip', rem: rem };
     if (rem < -1) return { k: 'result', rem: rem };
     if (rem <= oddsMin) return { k: 'odds_now', rem: rem, urgent: true };
@@ -231,20 +262,35 @@
   function upcoming(races, day, now, cfg) {
     return dayRaces(races, day).filter(function (r) {
       var s = stage(r, now, cfg).k;
-      return s !== 'done' && s !== 'skip' && s !== 'result';
+      return s !== 'done' && s !== 'skip' && s !== 'result' && s !== 'void';
+    });
+  }
+  // Upcoming races split into the three lists the home screen shows
+  function lists(races, day, now, cfg) {
+    var out = { focus: [], medium: [], watch: [] };
+    upcoming(races, day, now, cfg).forEach(function (r) { out[inFocus(r) ? 'focus' : group(r)].push(r); });
+    return out;
+  }
+  // Races that went by without being played, plus skipped ones (hidden until tapped)
+  function passed(races, day, now, cfg) {
+    return dayRaces(races, day).filter(function (r) {
+      if (resultOk(r) || r.abandoned) return false;
+      if (r.skipped) return true;
+      return stage(r, now, cfg).k === 'result' && !played(r);
     });
   }
   // The single most urgent job: an urgent race whose jump is soonest
   function doNow(races, day, now, cfg) {
-    var urgent = upcoming(races, day, now, cfg).filter(function (r) { return stage(r, now, cfg).urgent; });
+    var urgent = upcoming(races, day, now, cfg).filter(function (r) { return followed(r) && stage(r, now, cfg).urgent; });
     return urgent[0] || null;
   }
   function resultsNeeded(races, now, cfg) {
-    return races.filter(function (r) { return stage(r, now, cfg).k === 'result'; })
+    // Only races you played: a race you never entered picks for has no result to record
+    return races.filter(function (r) { return stage(r, now, cfg).k === 'result' && played(r); })
       .sort(function (a, b) { return jumpAt(a) - jumpAt(b); });
   }
   function finished(races, day) {
-    return races.filter(function (r) { return r.day === day && resultOk(r); })
+    return races.filter(function (r) { return r.day === day && (resultOk(r) || r.abandoned); })
       .sort(function (a, b) { return jumpAt(b) - jumpAt(a); });
   }
   // Two scheduled jobs (card or odds) within 60 s of each other in the next hour
@@ -252,6 +298,7 @@
     cfg = cfg || {};
     var cardMin = cfg.card || 15, oddsMin = cfg.odds || 3, jobs = [];
     upcoming(races, day, now, cfg).forEach(function (r) {
+      if (!followed(r)) return;
       var j = jumpAt(r);
       if (!hasPicks(r)) jobs.push({ r: r, k: 'card', t: j - cardMin * 60000 });
       jobs.push({ r: r, k: 'odds', t: j - oddsMin * 60000 });
@@ -268,7 +315,7 @@
     cfg = cfg || {};
     var cardMin = cfg.card || 15, oddsMin = cfg.odds || 3, out = [];
     dayRaces(races, day).forEach(function (r) {
-      if (r.skipped || r.muted || resultOk(r)) return;
+      if (!followed(r) || resultOk(r)) return;
       var rem = (jumpAt(r) - now) / 60000, f = r.fired || {};
       if (!f.o && rem <= oddsMin && rem > -1) out.push({ r: r, k: 'odds' });
       else if (!f.c && !f.o && rem <= cardMin && rem > oddsMin && !hasPicks(r)) out.push({ r: r, k: 'card' });
@@ -359,7 +406,7 @@
     });
     S.roi.multi = { stake: 0, pnl: 0 };
     races.forEach(function (r) {
-      if (!resultOk(r) || r.skipped) return;
+      if (!resultOk(r) || r.skipped || r.abandoned) return;
       if (f.country && r.country !== f.country) return;
       if (f.from && r.day < f.from) return;
       if (f.to && r.day > f.to) return;
@@ -372,7 +419,7 @@
       ENGINES.forEach(function (e) {
         SLOTS.forEach(function (s, i) {
           var o = outcome(r, e.k, i);
-          if (!o || o === 'X') return;
+          if (!o || o === 'X' || o === 'N') return;
           addT(S.eng[e.k], o); addT(S.slot[e.k][s.k], o); addT(S.track[tk][e.k], o); addT(S.country[r.country][e.k], o);
         });
       });
@@ -406,11 +453,18 @@
   // Reads two layouts:
   //  1. Simple day file: { day:"2026-10-17", races:[{country,track,rno,time,runners}] }
   //  2. Race planner file: { fixture_date_local, races:[{country,track,race_number,ist_time,ist_date,active_runners_reported,race_name,planner_priority}] }
+  // Optional header (either layout): ledgerbook_format, created_by, created_at, race_day
+  // Races already in the app are updated (time, runners, priority, name) — never duplicated.
+  function fileInfo(data, n) {
+    var by = data.created_by || data.generator || data.source || data.app || data.title || '';
+    return { by: String(by).slice(0, 60), at: String(data.created_at || data.generated_at || '').slice(0, 25), fmt: data.ledgerbook_format || 0, n: n };
+  }
   function importDay(existing, data, fallbackDay) {
-    var day = data.day || data.fixture_date_local || data.date || fallbackDay, have = {}, added = [], skipped = 0, bad = 0;
-    existing.forEach(function (r) { have[raceKey(r)] = 1; });
+    var day = data.race_day || data.day || data.fixture_date_local || data.date || fallbackDay;
+    var have = {}, inFile = {}, added = [], updated = [], skipped = 0, bad = 0, days = {};
+    existing.forEach(function (r) { if (!r.deleted) have[raceKey(r)] = r; });
     (data.races || []).forEach(function (x) {
-      var rday = x.day || x.fixture_date_local || day;
+      var rday = x.race_day || x.day || x.fixture_date_local || day;
       var time = x.time || x.ist_time || '';
       var rno = parseInt(String(x.rno != null ? x.rno : x.race_number).replace(/\D/g, ''), 10);
       var runners = x.runners != null ? x.runners : x.active_runners_reported;
@@ -420,11 +474,22 @@
       if (!at || !rno || !x.track) { bad++; return; }
       var r = newRace({ day: rday, at: at, country: normCountry(x.country), track: cleanTrack(x.track), rno: rno, runners: runners, pay: x.pay });
       if (x.race_name) r.name = String(x.race_name).slice(0, 80);
-      if (x.planner_priority) r.prio = String(x.planner_priority).toUpperCase().slice(0, 8);
-      if (have[raceKey(r)]) { skipped++; return; }
-      have[raceKey(r)] = 1; added.push(r);
+      if (x.planner_priority || x.priority) r.prio = String(x.planner_priority || x.priority).toUpperCase().slice(0, 8);
+      var key = raceKey(r);
+      if (inFile[key]) { skipped++; return; }
+      inFile[key] = 1; days[rday] = (days[rday] || 0) + 1;
+      var old = have[key];
+      if (!old) { added.push(r); return; }
+      // Same race loaded before: bring in what changed in the newer file
+      var ch = [];
+      if (!resultOk(old) && old.at !== r.at) { old.at = r.at; old.delay = 0; old.fired = { c: 0, o: 0 }; ch.push('time'); }
+      if (r.runners && r.runners !== old.runners && !(old.nr && old.nr.length)) { old.runners = r.runners; ch.push('runners'); }
+      if (r.prio && r.prio !== old.prio) { old.prio = r.prio; ch.push('priority'); }
+      if (r.name && r.name !== old.name) old.name = r.name;
+      if (ch.length) { old.u = Date.now(); updated.push({ r: old, ch: ch }); } else skipped++;
     });
-    return { added: added, skipped: skipped, bad: bad };
+    var mainDay = Object.keys(days).sort(function (a, b) { return days[b] - days[a]; })[0] || day;
+    return { added: added, updated: updated, skipped: skipped, bad: bad, day: mainDay, info: fileInfo(data, added.length + updated.length + skipped) };
   }
   // Old LedgerBook (v1) backup → new races. Track history keeps working.
   function importLegacy(existing, data) {
@@ -488,6 +553,7 @@
     agreement: agreement, agreeLevel: agreeLevel,
     parseResult: parseResult, position: position, outcome: outcome,
     betPnl: betPnl, raceStaked: raceStaked, racePnl: racePnl, bankroll: bankroll,
+    isNR: isNR, group: group, played: played, inFocus: inFocus, followed: followed, lists: lists, passed: passed,
     stage: stage, dayRaces: dayRaces, upcoming: upcoming, doNow: doNow, resultsNeeded: resultsNeeded, finished: finished, clashes: clashes, dueAlerts: dueAlerts,
     parsePicks: parsePicks, horseFrom: horseFrom, oddsFrom: oddsFrom,
     stats: stats, pct: pct,
