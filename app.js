@@ -3,7 +3,7 @@
   'use strict';
   var LB = window.LB;
   var SLOTS = LB.SLOTS, ENGINES = LB.ENGINES;
-  var VERSION = '2.0.4';
+  var VERSION = '2.0.5';
 
   /* =========================================================
      STATE
@@ -399,6 +399,8 @@
   }
   function stageChips(r, st) {
     var out = [];
+    if (r.prio === 'TOP') out.push('<span class="chip gold">TOP</span>');
+    else if (r.prio === 'HIGH') out.push('<span class="chip silver">HIGH</span>');
     if (st.k === 'odds_now') out.push('<span class="chip red">ODDS NOW</span>');
     else if (st.k === 'card_now') out.push('<span class="chip ' + (st.overdue ? 'red' : 'blue') + '">' + (st.overdue ? 'CARD OVERDUE' : 'CARD NOW') + '</span>');
     else if (st.k === 'card_in') out.push('<span class="chip blue">CARD IN ' + LB.fmtCountdown(st.inMin * 60000) + '</span>');
@@ -423,7 +425,7 @@
   function raceView(r) {
     var now = Date.now(), st = LB.stage(r, now, cfg()), tierN = LB.tier(r), n = LB.slotCount(r);
     var h = '<header class="rhead">' + (wide() ? '' : '<button class="iconbtn sm" data-act="back" aria-label="Back">' + I.back + '</button>') +
-      '<div class="ttl"><b>' + esc(raceName(r)) + '</b><span class="cap">' + esc(metaLine(r)) + '</span></div>' +
+      '<div class="ttl"><b>' + esc(raceName(r)) + '</b><span class="cap">' + esc(metaLine(r)) + '</span>' + (r.name ? '<div style="font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px">' + esc(r.name) + '</div>' : '') + '</div>' +
       '<div class="cd mono' + (st.k === 'odds_now' ? '" style="color:var(--red)' : '') + '"><span data-cd="' + r.id + '">' + LB.fmtCountdown(LB.jumpAt(r) - now) + '</span><small>JUMP ' + LB.hhmm(LB.jumpAt(r)) + '</small></div>' +
       '<button class="iconbtn sm" data-act="raceMenu" aria-label="Race options">' + I.more + '</button></header><div class="scroll">';
     // quick meta
@@ -671,8 +673,12 @@
     var h = '';
     var a = currentAlert();
     if (a) { h += alertHtml(a).replace('class="alert odds"', 'class="alert odds' + (a.shown ? '' : ' in') + '"'); a.shown = true; }
-    else if (S.cardBanners.length && !S.sheet && !S.kp) h += bannerHtml(); // chime still plays; banner waits until the form/keypad closes
-    if (toastState) h += '<div class="toast' + (toastState.shown ? '' : ' in') + '"><span>' + esc(toastState.msg) + '</span>' + (toastState.undo ? '<button data-act="undo">UNDO</button>' : '') + '</div>';
+    var bh = '';
+    if (!a && S.cardBanners.length && !S.sheet && !S.kp) bh = bannerHtml(); // chime still plays; banner waits until the form/keypad closes
+    h += bh;
+    // Messages sit above the banner, never on top of its buttons
+    var tpos = !bh ? '' : (bh.indexOf('banner mini') > -1 ? ' abmini' : ' ab') + (bh.indexOf(' low') > -1 ? 'low' : '');
+    if (toastState) h += '<div class="toast' + tpos + (toastState.shown ? '' : ' in') + '"><span>' + esc(toastState.msg) + '</span>' + (toastState.undo ? '<button data-act="undo">UNDO</button>' : '') + '</div>';
     return h;
   }
   function toast(msg, undo) {
@@ -1199,7 +1205,11 @@
   }
   function importDayText(t) {
     var data;
-    try { data = JSON.parse(t.replace(/^```(json)?|```$/gm, '').trim()); } catch (e) { toast('That is not a valid day file'); return; }
+    var clean = t.replace(/^```(json)?|```$/gm, '').trim();
+    try { data = JSON.parse(clean); } catch (e) {
+      var a = clean.indexOf('{'), b = clean.lastIndexOf('}');
+      try { data = JSON.parse(clean.slice(a, b + 1)); } catch (e2) { toast('That is not a valid day file'); return; }
+    }
     if (Array.isArray(data)) data = { races: data };
     var res = LB.importDay(S.races, data, S.ui.day);
     res.added.forEach(function (r) { S.races.push(r); persist(r); });

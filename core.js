@@ -395,19 +395,32 @@
   /* ---------- day import (from Claude) and old LedgerBook import ---------- */
   function normCountry(c) {
     c = String(c || '').toUpperCase().trim();
-    var map = { UK: 'GB', GBR: 'GB', ENG: 'GB', ENGLAND: 'GB', SCO: 'GB', WAL: 'GB', IRE: 'IE', IRL: 'IE', AUS: 'AU', FRA: 'FR', RSA: 'SA', ZA: 'SA', SAF: 'SA', OTHER: 'OT', NZL: 'NZ', USA: 'US' };
+    var map = { UK: 'GB', GBR: 'GB', ENG: 'GB', ENGLAND: 'GB', SCO: 'GB', SCOTLAND: 'GB', WAL: 'GB', WALES: 'GB', 'UNITED KINGDOM': 'GB', 'GREAT BRITAIN': 'GB', BRITAIN: 'GB',
+      IRE: 'IE', IRL: 'IE', IRELAND: 'IE', AUS: 'AU', AUSTRALIA: 'AU', FRA: 'FR', FRANCE: 'FR', RSA: 'SA', ZA: 'SA', SAF: 'SA', 'SOUTH AFRICA': 'SA',
+      HKG: 'HK', 'HONG KONG': 'HK', OTHER: 'OT', NZL: 'NZ', 'NEW ZEALAND': 'NZ', USA: 'US', 'UNITED STATES': 'US' };
     if (map[c]) return map[c];
     return COUNTRIES.some(function (x) { return x.k === c; }) ? c : 'OT';
   }
-  // Day file: { day:"2026-10-17", races:[{country,track,rno,time,runners}] }
+  // "Kempton (AW)" → "Kempton": TABtouch and results sites use the plain course name
+  function cleanTrack(t) { return String(t || '').replace(/\s*\((AW|A\.W\.|AWT|Polytrack|Tapeta)\)\s*$/i, '').replace(/\s+/g, ' ').trim(); }
+  // Reads two layouts:
+  //  1. Simple day file: { day:"2026-10-17", races:[{country,track,rno,time,runners}] }
+  //  2. Race planner file: { fixture_date_local, races:[{country,track,race_number,ist_time,ist_date,active_runners_reported,race_name,planner_priority}] }
   function importDay(existing, data, fallbackDay) {
-    var day = data.day || fallbackDay, have = {}, added = [], skipped = 0, bad = 0;
+    var day = data.day || data.fixture_date_local || data.date || fallbackDay, have = {}, added = [], skipped = 0, bad = 0;
     existing.forEach(function (r) { have[raceKey(r)] = 1; });
     (data.races || []).forEach(function (x) {
-      var at = makeAt(x.day || day, x.time);
-      var rno = parseInt(String(x.rno).replace(/\D/g, ''), 10);
+      var rday = x.day || x.fixture_date_local || day;
+      var time = x.time || x.ist_time || '';
+      var rno = parseInt(String(x.rno != null ? x.rno : x.race_number).replace(/\D/g, ''), 10);
+      var runners = x.runners != null ? x.runners : x.active_runners_reported;
+      var at = makeAt(rday, time);
+      // A planner gives the IST calendar date too: an after-midnight race must land on the next date
+      if (at && x.ist_date && dayKey(new Date(at)) !== x.ist_date) at = null;
       if (!at || !rno || !x.track) { bad++; return; }
-      var r = newRace({ day: x.day || day, at: at, country: normCountry(x.country), track: String(x.track).trim(), rno: rno, runners: x.runners, pay: x.pay });
+      var r = newRace({ day: rday, at: at, country: normCountry(x.country), track: cleanTrack(x.track), rno: rno, runners: runners, pay: x.pay });
+      if (x.race_name) r.name = String(x.race_name).slice(0, 80);
+      if (x.planner_priority) r.prio = String(x.planner_priority).toUpperCase().slice(0, 8);
       if (have[raceKey(r)]) { skipped++; return; }
       have[raceKey(r)] = 1; added.push(r);
     });
@@ -478,7 +491,7 @@
     stage: stage, dayRaces: dayRaces, upcoming: upcoming, doNow: doNow, resultsNeeded: resultsNeeded, finished: finished, clashes: clashes, dueAlerts: dueAlerts,
     parsePicks: parsePicks, horseFrom: horseFrom, oddsFrom: oddsFrom,
     stats: stats, pct: pct,
-    normCountry: normCountry, importDay: importDay, importLegacy: importLegacy,
+    normCountry: normCountry, cleanTrack: cleanTrack, importDay: importDay, importLegacy: importLegacy,
     trackList: trackList, trackMatches: trackMatches
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

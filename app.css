@@ -377,3 +377,7 @@ textarea.inp{padding:12px 14px;min-height:140px;font:13px/1.45 var(--mono);resiz
 /* fast tapping never selects text or zooms */
 button,.kp,.nav,.tabs,.row,.tile{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 input,textarea{-webkit-user-select:text;user-select:text}
+.toast.ab{bottom:calc(74px + 214px + var(--safe-b))}
+.toast.ablow{bottom:calc(12px + 214px + var(--safe-b))}
+.toast.abmini{bottom:calc(74px + 58px + var(--safe-b))}
+.toast.abminilow{bottom:calc(12px + 58px + var(--safe-b))}
