@@ -381,3 +381,4 @@ input,textarea{-webkit-user-select:text;user-select:text}
 .toast.ablow{bottom:calc(12px + 214px + var(--safe-b))}
 .toast.abmini{bottom:calc(74px + 58px + var(--safe-b))}
 .toast.abminilow{bottom:calc(12px + 58px + var(--safe-b))}
+.toast.top{top:calc(12px + env(safe-area-inset-top,0px));bottom:auto}

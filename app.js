@@ -3,7 +3,7 @@
   'use strict';
   var LB = window.LB;
   var SLOTS = LB.SLOTS, ENGINES = LB.ENGINES;
-  var VERSION = '2.0.5';
+  var VERSION = '2.0.6';
 
   /* =========================================================
      STATE
@@ -163,6 +163,7 @@
     more: '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>',
     del: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 5H9l-6 7 6 7h12z"/><path d="M13 10l4 4M17 10l-4 4"/></svg>',
     star: '<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.5l2.9 6.2 6.6.7-4.9 4.5 1.4 6.6L12 17.2l-5.9 3.3 1.4-6.6L2.5 9.4l6.6-.7z"/></svg>',
+    upload: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M12 15V3M7 8l5-5 5 5"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>',
     multi: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="8" cy="8" r="4"/><circle cx="16" cy="16" r="4"/></svg>'
   };
 
@@ -344,7 +345,8 @@
     var h = '<header class="hdr"><div><div class="clock mono" data-clock>' + clockHtml() + '</div>' +
       '<div class="daynav"><button data-act="day" data-n="-1" aria-label="Previous day">' + I.left + '</button><span class="d' + (day === LB.defaultDay(now) ? ' today' : '') + '">' + fmtDay(day) + '</span><button data-act="day" data-n="1" aria-label="Next day">' + I.right + '</button></div></div>' +
       '<div class="spacer"></div><div style="text-align:right;margin-right:2px"><div class="cap" style="white-space:nowrap;letter-spacing:1px">' + syncLabel() + '</div><div class="cap" style="margin-top:5px;color:var(--text);white-space:nowrap;letter-spacing:1px">' + up.length + ' LEFT / ' + dayAll.length + '</div></div>' +
-      '<button class="iconbtn sm" data-act="addRace" aria-label="Add race">' + I.plus + '</button>' +
+      '<button class="iconbtn sm" data-act="importDay" aria-label="Load races" style="color:var(--gold);border-color:var(--gold-line)">' + I.upload + '</button>' +
+      '<button class="iconbtn sm" data-act="addRace" aria-label="Add one race">' + I.plus + '</button>' +
       '<button class="iconbtn sm" data-act="settings" aria-label="Settings">' + I.gear + '</button></header>';
     h += '<div class="scroll">';
     if (!S.armed) {
@@ -353,7 +355,7 @@
       h += '<div class="armed">' + I.sound + '<span style="flex:1">' + (S.dev.sound ? 'SOUND ON' : 'SOUND OFF') + ' · <span class="c">T−' + c.card + ' CHIME</span> · <span class="o">T−' + c.odds + ' ALARM</span>' + (S.dev.keep ? ' · BACKGROUND ON' : '') + '</span></div>';
     }
     if (!dayAll.length) {
-      h += '<div class="empty"><b>No races for this day</b>Add races one by one with +, or paste the day file I make from your TABtouch screenshots.<div style="display:flex;gap:8px;justify-content:center;margin-top:14px"><button class="btn gold sm" data-act="addRace">Add race</button><button class="btn ghost sm" data-act="importDay">Paste day file</button></div>' + (window.LB_PREVIEW ? '<button class="btn blue sm" style="margin:12px auto 0" data-act="demo">Load a demo race day</button>' : '') + '</div>';
+      h += '<div class="empty"><b>No races for this day</b>Load your race planner file to bring in the whole day at once, or add races one by one.<div style="display:flex;flex-direction:column;gap:8px;margin-top:14px"><button class="btn gold full" data-act="importDay">' + I.upload + 'Load races</button><button class="btn ghost full" data-act="addRace">' + I.plus + 'Add one race</button></div>' + (window.LB_PREVIEW ? '<button class="btn blue sm" style="margin:12px auto 0" data-act="demo">Load a demo race day</button>' : '') + '</div>';
     }
     if (dn) h += nowCard(dn, now, c);
     else if (up.length) {
@@ -380,7 +382,7 @@
     }
     var dayPnl = 0; dayAll.forEach(function (r) { var p = LB.racePnl(r); if (p) dayPnl += p; });
     h += '<div class="bank"><div' + (!S.set.bank && !(S.set.adj || []).length ? ' data-act="setBank" style="cursor:pointer"' : '') + '><span class="cap">BALANCE' + (!S.set.bank && !(S.set.adj || []).length ? ' · SET' : '') + '</span><b>' + money(bk.balance) + '</b></div><div><span class="cap">IN PLAY</span><b style="color:var(--gold)">' + money(bk.inPlay) + '</b></div><div><span class="cap">DAY P&amp;L</span><b class="' + (dayPnl > 0 ? 'ok' : dayPnl < 0 ? 'bad' : '') + '">' + money(dayPnl, true) + '</b></div></div>';
-    if (dayAll.length) h += '<div style="display:flex;gap:8px;padding:12px 12px 0"><button class="btn ghost sm" style="flex:1" data-act="importDay">Paste day file</button><button class="btn ghost sm" style="flex:1" data-act="addRace">Add race</button></div>';
+    if (dayAll.length) h += '<div style="display:flex;gap:8px;padding:12px 12px 0"><button class="btn gold sm" style="flex:1.4" data-act="importDay">' + I.upload + 'Load races</button><button class="btn ghost sm" style="flex:1" data-act="addRace">' + I.plus + 'Add race</button></div>';
     h += '</div>';
     return h;
   }
@@ -677,7 +679,7 @@
     if (!a && S.cardBanners.length && !S.sheet && !S.kp) bh = bannerHtml(); // chime still plays; banner waits until the form/keypad closes
     h += bh;
     // Messages sit above the banner, never on top of its buttons
-    var tpos = !bh ? '' : (bh.indexOf('banner mini') > -1 ? ' abmini' : ' ab') + (bh.indexOf(' low') > -1 ? 'low' : '');
+    var tpos = a ? ' top' : !bh ? '' : (bh.indexOf('banner mini') > -1 ? ' abmini' : ' ab') + (bh.indexOf(' low') > -1 ? 'low' : '');
     if (toastState) h += '<div class="toast' + tpos + (toastState.shown ? '' : ' in') + '"><span>' + esc(toastState.msg) + '</span>' + (toastState.undo ? '<button data-act="undo">UNDO</button>' : '') + '</div>';
     return h;
   }
@@ -813,8 +815,13 @@
     switch (S.sheet) {
       case 'addRace': return addRaceSheet(d);
       case 'importDay':
-        return sheetWrap('Paste day file', '<div class="hint">Send me the day\'s TABtouch screenshots and I\'ll give you a day file. Paste it here — all races load at once. Races already in the app are skipped.</div><textarea class="inp" id="dayText" data-bind="dayText" placeholder=\'{"day":"2026-10-17","races":[{"country":"AU","track":"Randwick","rno":5,"time":"10:40","runners":12}]}\'>' + esc(sheetData.dayText || '') + '</textarea><label class="btn ghost sm" style="cursor:pointer">Or choose a file<input type="file" accept=".json,.txt" id="dayFile" style="display:none"></label>',
-          '<button class="btn ghost" style="flex:1" data-act="closeSheet">Cancel</button><button class="btn gold" style="flex:1.6" data-act="doImportDay">Load races</button>');
+        return sheetWrap('Load races',
+          '<label class="btn gold full" style="cursor:pointer;min-height:58px;font-size:16px">' + I.upload + 'Choose file from phone<input type="file" id="dayFile" style="display:none"></label>' +
+          '<div class="hint">Pick your race planner file (for example <span class="mono">FHE_2026-10-14_….json</span>) from Downloads or WhatsApp. Every race in it loads at once; races already in the app are skipped.</div>' +
+          '<div style="display:flex;align-items:center;gap:10px;margin:6px 0"><span style="flex:1;height:1px;background:var(--line2)"></span><span class="cap">OR PASTE THE FILE TEXT</span><span style="flex:1;height:1px;background:var(--line2)"></span></div>' +
+          '<div class="hint">Copy the file\'s text (or my reply that contains it), long-press the box below and choose Paste.</div>' +
+          '<textarea class="inp" id="dayText" data-bind="dayText" placeholder="Paste here">' + esc(sheetData.dayText || '') + '</textarea>',
+          '<button class="btn ghost" style="flex:1" data-act="closeSheet">Cancel</button><button class="btn gold" style="flex:1.6" data-act="doImportDay">Load pasted text</button>');
       case 'paste': return pasteSheet(d, r);
       case 'tier':
         return sheetWrap('Payout tier · ' + esc(raceName(r)), '<div class="hint">Auto works it out from country and runners (' + ccode(r.country) + ', ' + (r.runners || '?') + ' runners → top ' + LB.autoTier(r.country, r.runners) + '). Set it by hand only if TABtouch pays differently.</div><div class="opts">' +
@@ -911,8 +918,8 @@
       '<span class="lbl" style="margin-top:8px">SYNC</span>' +
       '<div class="setrow"><div class="t"><b>' + (S.sync.user ? 'Synced as ' + esc(S.sync.user) : 'Phone sync') + '</b><span>' + (S.sync.user ? 'Changes reach your other phones in about 1–2 seconds.' : 'Off — data stays on this phone only.') + '</span></div><button class="btn ghost sm" data-act="openSync">' + (S.sync.user ? 'Manage' : 'Set up') + '</button></div>' +
       '<span class="lbl" style="margin-top:8px">DATA</span>' +
-      '<div class="g2"><button class="btn ghost sm" data-act="importDay">Paste day file</button><label class="btn ghost sm" style="cursor:pointer">Import old LedgerBook<input type="file" accept=".json" id="legacyFile" style="display:none"></label>' +
-      '<button class="btn ghost sm" data-act="exportAll">Download backup</button><label class="btn ghost sm" style="cursor:pointer">Restore backup<input type="file" accept=".json" id="restoreFile" style="display:none"></label></div>' +
+      '<div class="g2"><button class="btn ghost sm" data-act="importDay">Load races</button><label class="btn ghost sm" style="cursor:pointer">Import old LedgerBook<input type="file" id="legacyFile" style="display:none"></label>' +
+      '<button class="btn ghost sm" data-act="exportAll">Download backup</button><label class="btn ghost sm" style="cursor:pointer">Restore backup<input type="file" id="restoreFile" style="display:none"></label></div>' +
       '<span class="lbl" style="margin-top:12px">MOTO G64 — ONE-TIME SETUP FOR RELIABLE ALERTS</span>' +
       '<div class="hint">1. Settings › Apps › Chrome › App battery usage › <b>Unrestricted</b>, and allow background usage.<br>2. Settings › Battery › turn <b>Adaptive Battery off</b>.<br>3. Search settings for “Improve battery while inactive” and turn it off if present.<br>4. Keep media volume up — alerts play through it.</div>' +
       '<div class="hint" style="margin-top:8px;color:var(--faint)">LedgerBook ' + VERSION + '</div>';
@@ -1208,8 +1215,9 @@
     var clean = t.replace(/^```(json)?|```$/gm, '').trim();
     try { data = JSON.parse(clean); } catch (e) {
       var a = clean.indexOf('{'), b = clean.lastIndexOf('}');
-      try { data = JSON.parse(clean.slice(a, b + 1)); } catch (e2) { toast('That is not a valid day file'); return; }
+      try { data = JSON.parse(clean.slice(a, b + 1)); } catch (e2) { toast('No races found in that file — is it the race planner .json file?'); return; }
     }
+    if (!data || !(Array.isArray(data) || Array.isArray(data.races))) { toast('No races found in that file — is it the race planner .json file?'); return; }
     if (Array.isArray(data)) data = { races: data };
     var res = LB.importDay(S.races, data, S.ui.day);
     res.added.forEach(function (r) { S.races.push(r); persist(r); });
