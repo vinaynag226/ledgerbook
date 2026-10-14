@@ -3,7 +3,7 @@
   'use strict';
   var LB = window.LB;
   var SLOTS = LB.SLOTS, ENGINES = LB.ENGINES;
-  var VERSION = '2.0.7';
+  var VERSION = '2.0.8';
 
   /* =========================================================
      STATE
@@ -380,7 +380,7 @@
     }
     h += fileBar(day, now);
     if (!dayAll.length) {
-      h += '<div class="empty"><b>No races for this day</b>Load your race planner file to bring in the whole day at once, or add races one by one.<div style="display:flex;flex-direction:column;gap:8px;margin-top:14px"><button class="btn gold full" data-act="importDay">' + I.upload + 'Load races</button><button class="btn ghost full" data-act="addRace">' + I.plus + 'Add one race</button></div>' + (window.LB_PREVIEW ? '<button class="btn blue sm" style="margin:12px auto 0" data-act="demo">Load a demo race day</button>' : '') + '</div>';
+      h += '<div class="empty"><b>No races for this day</b>Tap <b style="display:inline;font-size:inherit;color:var(--gold)">Load races</b> and pick your timetable .json file from Downloads or WhatsApp — every race comes in at once. Or add a race by hand.<div style="display:flex;flex-direction:column;gap:8px;margin-top:14px"><button class="btn gold full" data-act="importDay">' + I.upload + 'Load races</button><button class="btn ghost full" data-act="addRace">' + I.plus + 'Add one race</button></div>' + (window.LB_PREVIEW ? '<button class="btn blue sm" style="margin:12px auto 0" data-act="demo">Load a demo race day</button>' : '') + '</div>';
     }
     if (dn) h += nowCard(dn, now, c);
     else {
@@ -865,14 +865,6 @@
     var d = sheetData, r = d.raceId ? getRace(d.raceId) : null;
     switch (S.sheet) {
       case 'addRace': return addRaceSheet(d);
-      case 'importDay':
-        return sheetWrap('Load races',
-          '<label class="btn gold full" style="cursor:pointer;min-height:58px;font-size:16px">' + I.upload + 'Choose file from phone<input type="file" id="dayFile" style="display:none"></label>' +
-          '<div class="hint">Pick your race planner file (for example <span class="mono">FHE_2026-10-14_….json</span>) from Downloads or WhatsApp. Every race in it loads at once; races already in the app are skipped.</div>' +
-          '<div style="display:flex;align-items:center;gap:10px;margin:6px 0"><span style="flex:1;height:1px;background:var(--line2)"></span><span class="cap">OR PASTE THE FILE TEXT</span><span style="flex:1;height:1px;background:var(--line2)"></span></div>' +
-          '<div class="hint">Copy the file\'s text (or my reply that contains it), long-press the box below and choose Paste.</div>' +
-          '<textarea class="inp" id="dayText" data-bind="dayText" placeholder="Paste here">' + esc(sheetData.dayText || '') + '</textarea>',
-          '<button class="btn ghost" style="flex:1" data-act="closeSheet">Cancel</button><button class="btn gold" style="flex:1.6" data-act="doImportDay">Load pasted text</button>');
       case 'paste': return pasteSheet(d, r);
       case 'tier':
         return sheetWrap('Payout tier · ' + esc(raceName(r)), '<div class="hint">Auto works it out from country and runners (' + ccode(r.country) + ', ' + (r.runners || '?') + ' runners → top ' + LB.autoTier(r.country, r.runners) + '). Set it by hand only if TABtouch pays differently.</div><div class="opts">' +
@@ -974,8 +966,8 @@
       '<span class="lbl" style="margin-top:8px">SYNC</span>' +
       '<div class="setrow"><div class="t"><b>' + (S.sync.user ? 'Synced as ' + esc(S.sync.user) : 'Phone sync') + '</b><span>' + (S.sync.user ? 'Changes reach your other phones in about 1–2 seconds.' : 'Off — data stays on this phone only.') + '</span></div><button class="btn ghost sm" data-act="openSync">' + (S.sync.user ? 'Manage' : 'Set up') + '</button></div>' +
       '<span class="lbl" style="margin-top:8px">DATA</span>' +
-      '<div class="g2"><button class="btn ghost sm" data-act="importDay">Load races</button><label class="btn ghost sm" style="cursor:pointer">Import old LedgerBook<input type="file" id="legacyFile" style="display:none"></label>' +
-      '<button class="btn ghost sm" data-act="exportAll">Download backup</button><label class="btn ghost sm" style="cursor:pointer">Restore backup<input type="file" id="restoreFile" style="display:none"></label></div>' +
+      '<div class="g2"><button class="btn ghost sm" data-act="importDay">Load races</button><button class="btn ghost sm" data-act="pickLegacy">Import old LedgerBook</button>' +
+      '<button class="btn ghost sm" data-act="exportAll">Download backup</button><button class="btn ghost sm" data-act="pickRestore">Restore backup</button></div>' +
       '<span class="lbl" style="margin-top:12px">MOTO G64 — ONE-TIME SETUP FOR RELIABLE ALERTS</span>' +
       '<div class="hint">1. Settings › Apps › Chrome › App battery usage › <b>Unrestricted</b>, and allow background usage.<br>2. Settings › Battery › turn <b>Adaptive Battery off</b>.<br>3. Search settings for “Improve battery while inactive” and turn it off if present.<br>4. Keep media volume up — alerts play through it.</div>' +
       '<div class="hint" style="margin-top:8px;color:var(--faint)">LedgerBook ' + VERSION + '</div>';
@@ -1092,7 +1084,7 @@
     kpOk: function () { var k = S.kp; S.kp = null; k.done(k.value || ''); },
     scrim: function (el, ev) {
       if (ev.target !== el) return;
-      var forms = { addRace: 1, editRace: 1, importDay: 1, paste: 1, sync: 1, multi: 1 };
+      var forms = { addRace: 1, editRace: 1, paste: 1, sync: 1, multi: 1 };
       if (forms[S.sheet]) return; // forms with typing boxes close only with ✕ / Cancel / Save
       closeSheet();
     },
@@ -1244,12 +1236,10 @@
       if (el.dataset.next) { sheetData = { country: d.country, track: r.track, rno: String(rno + 1), time: '', runners: '' }; render(); var tm = document.getElementById('arTime'); if (tm) tm.focus(); toast('Saved ' + raceName(r)); }
       else { closeSheet(); toast('Saved ' + raceName(r)); }
     },
-    importDay: function () { openSheet('importDay'); },
-    doImportDay: function () {
-      var t = val('dayText').trim();
-      if (!t) { toast('Paste the day file first'); return; }
-      importDayText(t);
-    },
+    // One tap: opens the phone's file picker straight away
+    importDay: function () { pickFile('day'); },
+    pickLegacy: function () { pickFile('legacy'); },
+    pickRestore: function () { pickFile('restore'); },
     // settings
     settings: function () { openSheet('settings'); },
     devTog: function (el) { var k = el.dataset.k; S.dev[k] = !S.dev[k]; saveDev(); if (k === 'keep') { if (S.dev.keep && S.armed) Sound.startKeepAlive(); else Sound.stopKeepAlive(); } render(); },
@@ -1385,41 +1375,47 @@
       document.getElementById('trackTable').innerHTML = trackTable(tracks, t.value);
     }
   });
-  root.addEventListener('change', function (ev) {
-    var t = ev.target;
-    if (!t.files || !t.files[0]) return;
-    var rd = new FileReader();
-    rd.onload = function () {
-      var txt = String(rd.result || '');
-      if (t.id === 'dayFile') importDayText(txt);
-      else if (t.id === 'legacyFile') {
-        try {
-          var data = JSON.parse(txt);
-          loadAll().then(function () {
-            var res = LB.importLegacy(S.races, data);
-            res.added.forEach(function (r) { S.races.push(r); persist(r); });
-            toast(res.added.length + ' old races imported' + (res.skipped ? ' · ' + res.skipped + ' already in' : ''));
-            render();
-          });
-        } catch (e) { toast('Could not read that file'); }
-      } else if (t.id === 'restoreFile') {
-        try {
-          var bk = JSON.parse(txt);
-          if (bk.app !== 'ledgerbook2') { toast('Not a LedgerBook v2 backup — use Import old LedgerBook'); return; }
-          loadAll().then(function () {
-            var have = {}; S.races.forEach(function (r) { have[r.id] = r; });
-            var n = 0;
-            (bk.races || []).forEach(function (r) { if (!have[r.id] || (r.u || 0) > (have[r.id].u || 0)) { upsertLocal(r); dirty[r.id] = r; n++; } });
-            flush();
-            if (bk.settings && !S.set.bank) { S.set = Object.assign(S.set, bk.settings); saveSettings(); }
-            toast(n + ' races restored'); render();
-          });
-        } catch (e) { toast('Could not read that file'); }
-      }
-    };
-    rd.readAsText(t.files[0]);
-    t.value = '';
+  // File picking. The box lives outside the app screen so a redraw can never remove it.
+  // (On Android the app goes to the background while the file picker is open, and redraws when it comes back.)
+  var filePick = document.createElement('input');
+  filePick.type = 'file'; filePick.id = 'filePick'; filePick.style.display = 'none';
+  document.body.appendChild(filePick);
+  var pickKind = 'day';
+  function pickFile(kind) { pickKind = kind; filePick.value = ''; filePick.click(); }
+  filePick.addEventListener('change', function () {
+    var f = filePick.files && filePick.files[0]; if (!f) return;
+    var kind = pickKind, rd = new FileReader();
+    rd.onload = function () { handleFile(kind, String(rd.result || '')); filePick.value = ''; };
+    rd.onerror = function () { toast('Could not open that file — try saving it to Downloads first'); };
+    rd.readAsText(f);
   });
+  function handleFile(kind, txt) {
+    if (kind === 'day') importDayText(txt);
+    else if (kind === 'legacy') {
+      try {
+        var data = JSON.parse(txt);
+        loadAll().then(function () {
+          var res = LB.importLegacy(S.races, data);
+          res.added.forEach(function (r) { S.races.push(r); persist(r); });
+          toast(res.added.length + ' old races imported' + (res.skipped ? ' · ' + res.skipped + ' already in' : ''));
+          render();
+        });
+      } catch (e) { toast('Could not read that file'); }
+    } else if (kind === 'restore') {
+      try {
+        var bk = JSON.parse(txt);
+        if (bk.app !== 'ledgerbook2') { toast('Not a LedgerBook v2 backup — use Import old LedgerBook'); return; }
+        loadAll().then(function () {
+          var have = {}; S.races.forEach(function (r) { have[r.id] = r; });
+          var n = 0;
+          (bk.races || []).forEach(function (r) { if (!have[r.id] || (r.u || 0) > (have[r.id].u || 0)) { upsertLocal(r); dirty[r.id] = r; n++; } });
+          flush();
+          if (bk.settings && !S.set.bank) { S.set = Object.assign(S.set, bk.settings); saveSettings(); }
+          toast(n + ' races restored'); render();
+        });
+      } catch (e) { toast('Could not read that file'); }
+    }
+  }
   document.addEventListener('keydown', function (ev) {
     if (!S.kp) return;
     if (/^[0-9]$/.test(ev.key)) { kpKey(ev.key); ev.preventDefault(); }
@@ -1575,5 +1571,5 @@
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     navigator.serviceWorker.register('sw.js').catch(function () { });
   }
-  window.__LB = { S: S, acts: acts, render: render, renderLayer: renderLayer, toast: toast, tick: tick, getRace: getRace, Sound: Sound, checkAlerts: checkAlerts };
+  window.__LB = { S: S, handleFile: handleFile, acts: acts, render: render, renderLayer: renderLayer, toast: toast, tick: tick, getRace: getRace, Sound: Sound, checkAlerts: checkAlerts };
 })();
