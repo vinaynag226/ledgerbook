@@ -3,7 +3,7 @@
   'use strict';
   var LB = window.LB;
   var SLOTS = LB.SLOTS, ENGINES = LB.ENGINES;
-  var VERSION = '2.0.1';
+  var VERSION = '2.0.3';
 
   /* =========================================================
      STATE
@@ -225,14 +225,32 @@
     S.armed = true;
     if (S.dev.keep) Sound.startKeepAlive();
     requestWake();
-    render();
+    render(); // also adds the Back-button guard
   }
 
   /* =========================================================
      RENDER — header, view, nav. Overlays live in their own layer.
      ========================================================= */
   function wide() { return window.innerWidth >= 960; }
+  // Remember what the person is typing so a redraw can never lose it
+  function grabFocus() {
+    var a = document.activeElement;
+    if (!a || !a.id || !root.contains(a) || !/^(INPUT|TEXTAREA)$/.test(a.tagName)) return null;
+    var f = { id: a.id, v: a.value, s: null, e: null };
+    try { f.s = a.selectionStart; f.e = a.selectionEnd; } catch (x) { }
+    return f;
+  }
+  function putFocus(f) {
+    if (!f) return;
+    var a = document.getElementById(f.id);
+    if (!a) return;
+    // Boxes keep their own text (data-bind); only unbound boxes need their text put back
+    if (!a.dataset.bind && a.id !== 'trackSearch' && a.type !== 'file' && a.value !== f.v) a.value = f.v;
+    a.focus({ preventScroll: true });
+    try { if (f.s !== null) a.setSelectionRange(f.s, f.e); } catch (x) { }
+  }
   function render() {
+    var foc = grabFocus();
     var sc = root.querySelectorAll('.scroll'), keepScroll = [];
     for (var i = 0; i < sc.length; i++) keepScroll.push(sc[i].scrollTop);
     root.className = wide() ? 'wide' : '';
@@ -245,12 +263,39 @@
     } else {
       html = '<div class="cols"><div class="col">' + viewHtml(v) + '</div></div>' + (v === 'race' ? '' : navHtml());
     }
-    html += '<div id="layer">' + layerHtml() + '</div>';
+    html += '<div id="sheetLayer">' + sheetLayerHtml() + '</div><div id="layer">' + layerHtml() + '</div>';
     root.innerHTML = html;
     sc = root.querySelectorAll('.scroll');
     for (var j = 0; j < sc.length && j < keepScroll.length; j++) sc[j].scrollTop = keepScroll[j];
     S.sig = signature();
+    putFocus(foc);
+    syncHistory();
   }
+  // Android Back button: steps back one layer (keypad → form → race/tab → home) instead of closing the app.
+  // In race-day mode, Back on the home screen asks for a second press, because closing the app stops alerts.
+  var navDepth = 0, ignorePops = 0, exitPending = 0;
+  function wantDepth() { return (S.armed && !exitPending ? 1 : 0) + (S.ui.view !== 'home' ? 1 : 0) + (S.sheet ? 1 : 0) + (S.kp ? 1 : 0); }
+  function syncHistory() {
+    var d = wantDepth();
+    while (navDepth < d) { history.pushState({ lb: navDepth + 1 }, ''); navDepth++; }
+    if (navDepth > d) { ignorePops++; var n = navDepth - d; navDepth = d; history.go(-n); }
+  }
+  window.addEventListener('popstate', function () {
+    if (ignorePops > 0) { ignorePops--; return; }
+    navDepth = Math.max(0, navDepth - 1);
+    if (S.kp) { if (S.kp.kind === 'slot') commitSlotField(); S.kp = null; }
+    else if (S.sheet) { S.sheet = null; sheetData = {}; }
+    else if (S.ui.view !== 'home') { S.ui.view = 'home'; }
+    else if (S.armed) {
+      exitPending = 1;
+      toast('Press Back again to close LedgerBook — alerts stop when it closes');
+      clearTimeout(exitPending.t);
+      setTimeout(function () { exitPending = 0; syncHistory(); }, 3000);
+      return;
+    }
+    render();
+  });
+  // Alerts, banners and toasts only. Never touches an open form or keypad.
   function renderLayer() {
     var l = document.getElementById('layer');
     if (l) l.innerHTML = layerHtml(); else render();
@@ -590,7 +635,7 @@
     }
     // tracks
     var tracks = Object.keys(S2.track).map(function (k) { return { k: k, t: S2.track[k] }; }).sort(function (a, b) { return b.t.races - a.t.races; });
-    h += '<div class="card"><h3><span>TRACKS</span><span>PLACE % · TAP TO FILTER</span></h3><input class="search" id="trackSearch" placeholder="Search track…" autocomplete="off" inputmode="search"><div id="trackTable" style="margin-top:8px">' + trackTable(tracks, '') + '</div></div>';
+    h += '<div class="card"><h3><span>TRACKS</span><span>PLACE % · TAP TO FILTER</span></h3><input class="search" id="trackSearch" placeholder="Search track…" autocomplete="off" inputmode="search" value="' + esc(S.ui.labQ || '') + '"><div id="trackTable" style="margin-top:8px">' + trackTable(tracks, S.ui.labQ || '') + '</div></div>';
     h += '</div>';
     return h;
   }
@@ -609,13 +654,17 @@
      LAYER — keypad, sheets, alerts, toasts
      ========================================================= */
   var toastState = null;
-  function layerHtml() {
+  function sheetLayerHtml() {
     var h = '';
     if (S.sheet) { h += '<div class="scrim' + (sheetData._shown ? '' : ' in') + '" data-act="scrim">' + sheetHtml() + '</div>'; sheetData._shown = true; }
     if (S.kp) { h += '<div class="scrim' + (S.kp.shown ? '' : ' in') + '" data-act="kpClose" style="z-index:60">' + kpHtml() + '</div>'; S.kp.shown = true; }
+    return h;
+  }
+  function layerHtml() {
+    var h = '';
     var a = currentAlert();
     if (a) { h += alertHtml(a).replace('class="alert odds"', 'class="alert odds' + (a.shown ? '' : ' in') + '"'); a.shown = true; }
-    else if (S.cardBanners.length && !S.sheet && !S.kp) h += bannerHtml(); // chime still plays; banner waits until the sheet/keypad closes
+    else if (S.cardBanners.length && !S.sheet && !S.kp) h += bannerHtml(); // chime still plays; banner waits until the form/keypad closes
     if (toastState) h += '<div class="toast' + (toastState.shown ? '' : ' in') + '"><span>' + esc(toastState.msg) + '</span>' + (toastState.undo ? '<button data-act="undo">UNDO</button>' : '') + '</div>';
     return h;
   }
@@ -741,6 +790,8 @@
   var sheetData = {};
   function openSheet(name, data) { S.sheet = name; sheetData = data || {}; render(); }
   function closeSheet() { S.sheet = null; sheetData = {}; render(); }
+  // A box's value: what the person typed (kept in sheetData as they type), else the default
+  function sv(k, dflt) { return sheetData[k] !== undefined ? sheetData[k] : (dflt === undefined || dflt === null ? '' : String(dflt)); }
   function sheetWrap(title, body, foot) {
     return '<div class="sheet" data-stop><div class="sh"><b>' + title + '</b><button class="iconbtn sm" data-act="closeSheet" aria-label="Close">✕</button></div><div class="sb">' + body + '</div>' + (foot ? '<div class="sf">' + foot + '</div>' : '') + '</div>';
   }
@@ -749,7 +800,7 @@
     switch (S.sheet) {
       case 'addRace': return addRaceSheet(d);
       case 'importDay':
-        return sheetWrap('Paste day file', '<div class="hint">Send me the day\'s TABtouch screenshots and I\'ll give you a day file. Paste it here — all races load at once. Races already in the app are skipped.</div><textarea class="inp" id="dayText" placeholder=\'{"day":"2026-10-17","races":[{"country":"AU","track":"Randwick","rno":5,"time":"10:40","runners":12}]}\'></textarea><label class="btn ghost sm" style="cursor:pointer">Or choose a file<input type="file" accept=".json,.txt" id="dayFile" style="display:none"></label>',
+        return sheetWrap('Paste day file', '<div class="hint">Send me the day\'s TABtouch screenshots and I\'ll give you a day file. Paste it here — all races load at once. Races already in the app are skipped.</div><textarea class="inp" id="dayText" data-bind="dayText" placeholder=\'{"day":"2026-10-17","races":[{"country":"AU","track":"Randwick","rno":5,"time":"10:40","runners":12}]}\'>' + esc(sheetData.dayText || '') + '</textarea><label class="btn ghost sm" style="cursor:pointer">Or choose a file<input type="file" accept=".json,.txt" id="dayFile" style="display:none"></label>',
           '<button class="btn ghost" style="flex:1" data-act="closeSheet">Cancel</button><button class="btn gold" style="flex:1.6" data-act="doImportDay">Load races</button>');
       case 'paste': return pasteSheet(d, r);
       case 'tier':
@@ -767,17 +818,17 @@
   function addRaceSheet(d) {
     var c = d.country || S.dev.lastCountry || 'AU';
     var body = '<div><span class="lbl">COUNTRY</span><div class="opts">' + LB.COUNTRIES.map(function (x) { return '<button class="opt' + (x.k === c ? ' on' : '') + '" data-act="arCountry" data-c="' + x.k + '">' + (x.k === 'GB' ? 'UK' : x.k) + '</button>'; }).join('') + '</div></div>' +
-      '<div><span class="lbl">TRACK</span><input class="inp" id="arTrack" autocomplete="off" placeholder="Type first letters…" value="' + esc(d.track || '') + '"><div class="ac" id="arAc"></div></div>' +
-      '<div class="g3"><div><span class="lbl">RACE NO.</span><input class="inp mono" id="arRno" inputmode="numeric" placeholder="5" value="' + esc(d.rno || '') + '"></div>' +
-      '<div><span class="lbl">TIME (IST)</span><input class="inp mono" id="arTime" inputmode="numeric" placeholder="10:40" value="' + esc(d.time || '') + '"></div>' +
-      '<div><span class="lbl">RUNNERS</span><input class="inp mono" id="arRun" inputmode="numeric" placeholder="12" value="' + esc(d.runners || '') + '"></div></div>' +
+      '<div><span class="lbl">TRACK</span><input class="inp" id="arTrack" data-bind="track" autocomplete="off" placeholder="Type first letters…" value="' + esc(d.track || '') + '"><div class="ac" id="arAc"></div></div>' +
+      '<div class="g3"><div><span class="lbl">RACE NO.</span><input class="inp mono" id="arRno" data-bind="rno" inputmode="numeric" placeholder="5" value="' + esc(d.rno || '') + '"></div>' +
+      '<div><span class="lbl">TIME (IST)</span><input class="inp mono" id="arTime" data-bind="time" inputmode="numeric" placeholder="10:40" value="' + esc(d.time || '') + '"></div>' +
+      '<div><span class="lbl">RUNNERS</span><input class="inp mono" id="arRun" data-bind="runners" inputmode="numeric" placeholder="12" value="' + esc(d.runners || '') + '"></div></div>' +
       '<div class="hint">Race day: ' + fmtDay(S.ui.day) + '. Times before 05:00 count as after midnight (UK evening races).</div><div id="arErr" class="hint bad"></div>';
     return sheetWrap('Add race', body, '<button class="btn ghost" style="flex:1" data-act="arSave" data-next="1">Save + next</button><button class="btn gold" style="flex:1" data-act="arSave">Save</button>');
   }
   function pasteSheet(d, r) {
     var e = engOf(d.eng || S.ui.eng);
     var body = '<div class="opts">' + ENGINES.map(function (x) { return '<button class="opt' + (x.k === e.k ? ' on' : '') + '" data-act="pasteEng" data-e="' + x.k + '">' + x.n + '</button>'; }).join('') + '</div>' +
-      '<textarea class="inp" id="pasteText" placeholder="Paste ' + e.n + '\'s prediction table here">' + esc(d.text || '') + '</textarea><div id="pastePreview">' + pastePreview(r, d.text || '') + '</div>';
+      '<textarea class="inp" id="pasteText" data-bind="text" placeholder="Paste ' + e.n + '\'s prediction table here">' + esc(d.text || '') + '</textarea><div id="pastePreview">' + pastePreview(r, d.text || '') + '</div>';
     return sheetWrap('Paste picks · ' + esc(raceName(r)), body, '<button class="btn ghost" style="flex:1" data-act="pasteClip">Paste from clipboard</button><button class="btn gold" style="flex:1" data-act="pasteApply">Fill ' + e.n + '</button>');
   }
   function pastePreview(r, text) {
@@ -800,8 +851,8 @@
   }
   function editRaceSheet(r) {
     var body = '<div><span class="lbl">COUNTRY</span><div class="opts">' + LB.COUNTRIES.map(function (x) { return '<button class="opt' + (x.k === (sheetData.country || r.country) ? ' on' : '') + '" data-act="erCountry" data-c="' + x.k + '">' + (x.k === 'GB' ? 'UK' : x.k) + '</button>'; }).join('') + '</div></div>' +
-      '<div><span class="lbl">TRACK</span><input class="inp" id="erTrack" value="' + esc(r.track) + '"></div>' +
-      '<div class="g3"><div><span class="lbl">RACE NO.</span><input class="inp mono" id="erRno" inputmode="numeric" value="' + r.rno + '"></div><div><span class="lbl">TIME</span><input class="inp mono" id="erTime" inputmode="numeric" value="' + LB.hhmm(r.at) + '"></div><div><span class="lbl">RUNNERS</span><input class="inp mono" id="erRun" inputmode="numeric" value="' + esc(r.runners || '') + '"></div></div><div id="erErr" class="hint bad"></div>';
+      '<div><span class="lbl">TRACK</span><input class="inp" id="erTrack" data-bind="erTrack" value="' + esc(sv('erTrack', r.track)) + '"></div>' +
+      '<div class="g3"><div><span class="lbl">RACE NO.</span><input class="inp mono" id="erRno" data-bind="erRno" inputmode="numeric" value="' + esc(sv('erRno', r.rno)) + '"></div><div><span class="lbl">TIME</span><input class="inp mono" id="erTime" data-bind="erTime" inputmode="numeric" value="' + esc(sv('erTime', LB.hhmm(r.at))) + '"></div><div><span class="lbl">RUNNERS</span><input class="inp mono" id="erRun" data-bind="erRun" inputmode="numeric" value="' + esc(sv('erRun', r.runners || '')) + '"></div></div><div id="erErr" class="hint bad"></div>';
     return sheetWrap('Edit race', body, '<button class="btn ghost" style="flex:1" data-act="closeSheet">Cancel</button><button class="btn gold" style="flex:1.6" data-act="erSave">Save</button>');
   }
   function betSheet(r, id) {
@@ -859,9 +910,9 @@
     } else {
       var hasCfg = !!S.dev.fire;
       body = '<div class="hint">Step 1 (once): paste the Firebase web config from the setup guide. Step 2: create your account on the first phone, then sign in with the same email on every other phone.</div>' +
-        '<span class="lbl">FIREBASE CONFIG</span><textarea class="inp" id="fireCfg" style="min-height:110px" placeholder="const firebaseConfig = { apiKey: ..., projectId: ... }">' + (hasCfg ? esc(JSON.stringify(S.dev.fire, null, 1)) : '') + '</textarea>' +
-        '<span class="lbl">EMAIL</span><input class="inp" id="syncEmail" type="email" autocomplete="email" placeholder="you@gmail.com">' +
-        '<span class="lbl">PASSWORD</span><input class="inp" id="syncPass" type="password" autocomplete="current-password" placeholder="At least 6 characters">' +
+        '<span class="lbl">FIREBASE CONFIG</span><textarea class="inp" id="fireCfg" data-bind="fireCfg" style="min-height:110px" placeholder="const firebaseConfig = { apiKey: ..., projectId: ... }">' + esc(sv('fireCfg', hasCfg ? JSON.stringify(S.dev.fire, null, 1) : '')) + '</textarea>' +
+        '<span class="lbl">EMAIL</span><input class="inp" id="syncEmail" data-bind="email" type="email" autocomplete="email" placeholder="you@gmail.com" value="' + esc(sheetData.email || '') + '">' +
+        '<span class="lbl">PASSWORD</span><input class="inp" id="syncPass" data-bind="pass" type="password" autocomplete="current-password" placeholder="At least 6 characters" value="' + esc(sheetData.pass || '') + '">' +
         '<div id="syncErr" class="hint bad">' + esc(S.sync.msg || '') + '</div>';
     }
     return sheetWrap('Phone sync', body, S.sync.user ? '' : '<button class="btn ghost" style="flex:1" data-act="syncUp">Create account</button><button class="btn gold" style="flex:1" data-act="syncIn">Sign in</button>');
@@ -956,7 +1007,12 @@
     kpClose: function (el, ev) { if (ev && ev.target.closest('[data-stop]') && el.dataset.act === 'kpClose' && el.classList.contains('scrim')) return; if (S.kp && S.kp.kind === 'slot') commitSlotField(); S.kp = null; render(); },
     kpQuick: function (el) { S.kp.value = el.dataset.v; S.kp.fresh = false; render(); },
     kpOk: function () { var k = S.kp; S.kp = null; k.done(k.value || ''); },
-    scrim: function (el, ev) { if (ev.target === el) closeSheet(); },
+    scrim: function (el, ev) {
+      if (ev.target !== el) return;
+      var forms = { addRace: 1, editRace: 1, importDay: 1, paste: 1, sync: 1, multi: 1 };
+      if (forms[S.sheet]) return; // forms with typing boxes close only with ✕ / Cancel / Save
+      closeSheet();
+    },
     closeSheet: closeSheet,
     // race tools
     paste: function () { openSheet('paste', { raceId: S.ui.raceId, eng: S.ui.eng === 'grid' ? 'claude' : S.ui.eng, text: '' }); },
@@ -990,7 +1046,7 @@
     mute: function () { var r = getRace(sheetData.raceId || S.ui.raceId); r.muted = !r.muted; persist(r); render(); },
     muteMeeting: function () { var r = getRace(sheetData.raceId); LB.dayRaces(S.races, r.day).forEach(function (x) { if (x.track === r.track && x.country === r.country) { x.muted = true; persist(x); } }); closeSheet(); toast('All ' + r.track + ' races muted'); },
     editRace: function () { openSheet('editRace', { raceId: sheetData.raceId || S.ui.raceId }); },
-    erCountry: function (el) { saveErInputs(); sheetData.country = el.dataset.c; render(); restoreErInputs(); },
+    erCountry: function (el) { sheetData.country = el.dataset.c; render(); },
     erSave: function () {
       var r = getRace(sheetData.raceId), track = val('erTrack').trim(), rno = parseInt(val('erRno'), 10), at = LB.makeAt(r.day, fixTime(val('erTime')));
       if (!track || !rno || !at) { document.getElementById('erErr').textContent = 'Check track, race number and time (e.g. 10:40).'; return; }
@@ -1050,7 +1106,7 @@
     // add race
     addRace: function () { openSheet('addRace', { country: S.dev.lastCountry || 'AU' }); setTimeout(function () { var t = document.getElementById('arTrack'); if (t && !t.value) t.focus(); }, 60); },
     arCountry: function (el) { saveArInputs(); sheetData.country = el.dataset.c; S.dev.lastCountry = el.dataset.c; saveDev(); render(); },
-    arPick: function (el) { var t = document.getElementById('arTrack'); t.value = el.dataset.t; document.getElementById('arAc').innerHTML = ''; var n = document.getElementById('arRno'); if (n) n.focus(); },
+    arPick: function (el) { var t = document.getElementById('arTrack'); t.value = el.dataset.t; sheetData.track = el.dataset.t; document.getElementById('arAc').innerHTML = ''; var n = document.getElementById('arRno'); if (n) n.focus(); },
     arSave: function (el) {
       saveArInputs();
       var d = sheetData, err = document.getElementById('arErr');
@@ -1114,9 +1170,6 @@
     return t.replace(/\b\w/g, function (c) { return c.toUpperCase(); });
   }
   function saveArInputs() { if (S.sheet !== 'addRace') return; sheetData.track = val('arTrack'); sheetData.rno = val('arRno'); sheetData.time = val('arTime'); sheetData.runners = val('arRun'); }
-  var erTmp = null;
-  function saveErInputs() { erTmp = { t: val('erTrack'), r: val('erRno'), tm: val('erTime'), run: val('erRun') }; }
-  function restoreErInputs() { if (!erTmp) return; var m = { erTrack: 't', erRno: 'r', erTime: 'tm', erRun: 'run' }; Object.keys(m).forEach(function (k) { var e = document.getElementById(k); if (e) e.value = erTmp[m[k]]; }); }
   function openResultKp(r) {
     if (!r) return;
     openNumKp({
@@ -1164,12 +1217,16 @@
   });
   root.addEventListener('input', function (ev) {
     var t = ev.target;
+    if (t.id === 'arTime' || t.id === 'erTime') {
+      var tv = t.value.replace(/[^0-9]/g, '').slice(0, 4);
+      t.value = tv.length > 2 ? tv.slice(0, 2) + ':' + tv.slice(2) : tv;
+    }
+    // Every form box is remembered as it is typed, so a redraw can never wipe it
+    if (t.dataset && t.dataset.bind && S.sheet) sheetData[t.dataset.bind] = t.value;
+    if (t.id === 'trackSearch') S.ui.labQ = t.value;
     if (t.id === 'arTrack') {
       var list = LB.trackMatches(LB.trackList(sheetData.country || 'AU', []).concat(S.tracks[sheetData.country || 'AU'] || []).filter(function (x, i, a) { return a.indexOf(x) === i; }), t.value);
       document.getElementById('arAc').innerHTML = list.map(function (x) { return '<button data-act="arPick" data-t="' + esc(x) + '">' + esc(x) + '</button>'; }).join('');
-    } else if (t.id === 'arTime' || t.id === 'erTime') {
-      var v = t.value.replace(/[^0-9]/g, '').slice(0, 4);
-      t.value = v.length > 2 ? v.slice(0, 2) + ':' + v.slice(2) : v;
     } else if (t.id === 'pasteText') {
       sheetData.text = t.value;
       document.getElementById('pastePreview').innerHTML = pastePreview(getRace(sheetData.raceId), t.value);
@@ -1346,7 +1403,13 @@
       tick(); render();
     }
   });
-  window.addEventListener('resize', function () { clearTimeout(window.__rz); window.__rz = setTimeout(render, 150); });
+  // The on-screen keyboard changes the window height on phones. Never redraw for that;
+  // only redraw when the layout switches between phone and laptop width.
+  var lastWide = null;
+  window.addEventListener('resize', function () {
+    clearTimeout(window.__rz);
+    window.__rz = setTimeout(function () { var w = wide(); if (lastWide !== null && w !== lastWide) render(); lastWide = w; }, 150);
+  });
 
   /* =========================================================
      BOOT
@@ -1364,5 +1427,5 @@
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     navigator.serviceWorker.register('sw.js').catch(function () { });
   }
-  window.__LB = { S: S, acts: acts, render: render, tick: tick, getRace: getRace, Sound: Sound, checkAlerts: checkAlerts };
+  window.__LB = { S: S, acts: acts, render: render, renderLayer: renderLayer, toast: toast, tick: tick, getRace: getRace, Sound: Sound, checkAlerts: checkAlerts };
 })();

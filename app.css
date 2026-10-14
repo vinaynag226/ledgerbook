@@ -372,3 +372,8 @@ textarea.inp{padding:12px 14px;min-height:140px;font:13px/1.45 var(--mono);resiz
   .scroll{padding-bottom:24px}
 }
 #app.wide .banner{left:auto;width:460px}
+
+
+/* fast tapping never selects text or zooms */
+button,.kp,.nav,.tabs,.row,.tile{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+input,textarea{-webkit-user-select:text;user-select:text}
