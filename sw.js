@@ -1,5 +1,5 @@
 /* LedgerBook service worker — whole app works offline after the first open. */
-var CACHE = 'ledgerbook-2.0.3';
+var CACHE = 'ledgerbook-2.0.4';
 var FILES = [
   './', 'index.html', 'app.css', 'core.js', 'app.js', 'firebase.bundle.js', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png',

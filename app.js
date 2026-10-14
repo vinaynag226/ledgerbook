@@ -3,7 +3,7 @@
   'use strict';
   var LB = window.LB;
   var SLOTS = LB.SLOTS, ENGINES = LB.ENGINES;
-  var VERSION = '2.0.3';
+  var VERSION = '2.0.4';
 
   /* =========================================================
      STATE
@@ -16,7 +16,7 @@
       bank: 0, adj: [], card: 15, odds: 3, stakeLast: 100, u: 0
     },
     dev: {                // this phone only
-      sound: true, vib: true, keep: true, volume: 0.8, fire: null, lastSync: 0
+      sound: true, vib: true, keep: true, volume: 0.8, alarmLen: 6, fire: null, lastSync: 0
     },
     ui: { view: 'home', day: LB.defaultDay(Date.now()), raceId: null, eng: 'claude', resTab: 'need', showAll: false, labF: { country: '', period: '30', track: '' } },
     armed: false,
@@ -169,6 +169,9 @@
   /* =========================================================
      SOUND — two clearly different sounds, plus background keep-alive
      ========================================================= */
+  function alarmSecs() { var n = +S.dev.alarmLen; return n === 3 || n === 6 || n === 10 ? n : 6; }
+  // Vibration that lasts as long as the alarm sound
+  function alarmVib() { var p = [], n = Math.round(alarmSecs() / 0.75); for (var i = 0; i < n; i++) p.push(400, 350); return p; }
   var Sound = (function () {
     var ctx = null, keep = null;
     function ac() {
@@ -188,18 +191,22 @@
       o.start(t); o.stop(t + dur + 0.05);
     }
     // T−15: soft, low two-note chime (bell-like)
+    // T−15: soft two-note chime, 3 rounds (about 4 seconds)
     function chime() {
       if (!S.dev.sound) return;
-      [[523.25, 0], [659.25, 0.28], [523.25, 0.9], [659.25, 1.18]].forEach(function (n) {
-        tone(n[0], n[1], 0.9, 'sine', 0.45); tone(n[0] * 2, n[1], 0.5, 'sine', 0.08);
+      [0, 1.4, 2.8].forEach(function (b) {
+        [[523.25, 0], [659.25, 0.28]].forEach(function (n) {
+          tone(n[0], b + n[1], 0.9, 'sine', 0.45); tone(n[0] * 2, b + n[1], 0.5, 'sine', 0.08);
+        });
       });
     }
-    // T−3: sharp rising triple alarm, played twice
+    // T−3: sharp rising triple alarm, repeated for the chosen length (default 6 seconds)
     function alarm() {
       if (!S.dev.sound) return;
-      [0, 0.75].forEach(function (b) {
+      var secs = alarmSecs();
+      for (var b = 0; b + 0.6 <= secs; b += 0.75) {
         [880, 1174.66, 1567.98].forEach(function (f, i) { tone(f, b + i * 0.16, 0.14, 'square', 0.32); });
-      });
+      }
     }
     function startKeepAlive() {
       var c = ac(); if (!c || keep) return;
@@ -212,7 +219,7 @@
       }
     }
     function stopKeepAlive() { if (keep) { try { keep.stop(); } catch (e) { } keep = null; } }
-    return { arm: ac, chime: chime, alarm: alarm, startKeepAlive: startKeepAlive, stopKeepAlive: stopKeepAlive, running: function () { return !!ctx && ctx.state === 'running'; } };
+    return { arm: ac, chime: chime, alarm: alarm, secs: alarmSecs, startKeepAlive: startKeepAlive, stopKeepAlive: stopKeepAlive, running: function () { return !!ctx && ctx.state === 'running'; } };
   })();
 
   var wakeLock = null;
@@ -889,6 +896,8 @@
       tg('sound', 'Sounds', 'Alert sounds on this phone.') +
       tg('vib', 'Vibration', 'Different patterns for chime and alarm.') +
       tg('keep', 'Background mode', 'Keeps alerts running while you use TABtouch, Claude or the exchange. Uses a little more battery.') +
+      '<div class="setrow"><div class="t"><b>Alarm length</b><span>How long the final odds alarm plays each time. It repeats every 30 s until you act.</span></div><div class="opts" style="flex-wrap:nowrap">' +
+      [3, 6, 10].map(function (n) { return '<button class="opt' + (alarmSecs() === n ? ' on' : '') + '" data-act="alarmLen" data-n="' + n + '">' + n + 's</button>'; }).join('') + '</div></div>' +
       '<div class="g2" style="margin:4px 0 8px"><button class="btn ghost sm" data-act="testChime">Test chime</button><button class="btn ghost sm" data-act="testAlarm">Test alarm</button></div>' +
       '<span class="lbl" style="margin-top:8px">BANKROLL</span>' +
       '<div class="setrow"><div class="t"><b>Starting bankroll</b><span>Balance now: ' + money(bk.balance) + ' · in play ' + money(bk.inPlay) + '</span></div><button class="fld" style="width:120px" data-act="setBank">' + money(S.set.bank) + '</button></div>' +
@@ -963,17 +972,17 @@
         r.fired.o = now; r.fired.c = r.fired.c || now;
         if (!S.alerts.some(function (a) { return a.id === r.id; })) S.alerts.push({ id: r.id, k: 'odds', last: now });
         S.cardBanners = S.cardBanners.filter(function (id) { return id !== r.id; });
-        Sound.alarm(); vib([400, 150, 400, 150, 400]);
+        Sound.alarm(); vib(alarmVib());
       } else {
         r.fired.c = now;
         if (S.cardBanners.indexOf(r.id) < 0) S.cardBanners.push(r.id);
-        Sound.chime(); vib([120, 90, 120]);
+        Sound.chime(); vib([120, 90, 120, 1100, 120, 90, 120, 1100, 120, 90, 120]);
       }
       persist(r); changed = true;
     });
     // repeat alarm every 30 s while the odds alert is up
     var a = currentAlert();
-    if (a && now - a.last >= 30000) { a.last = now; Sound.alarm(); vib([400, 150, 400]); }
+    if (a && now - a.last >= 30000) { a.last = now; Sound.alarm(); vib(alarmVib()); }
     if (!a && S.alerts.length === 0 && changed === false) { /* nothing */ }
     // drop card banners once picks are in or race moved on
     var before = S.cardBanners.length;
@@ -1130,8 +1139,9 @@
     settings: function () { openSheet('settings'); },
     devTog: function (el) { var k = el.dataset.k; S.dev[k] = !S.dev[k]; saveDev(); if (k === 'keep') { if (S.dev.keep && S.armed) Sound.startKeepAlive(); else Sound.stopKeepAlive(); } render(); },
     step: function (el) { var k = el.dataset.k; S.set[k] = Math.max(+el.dataset.min, Math.min(+el.dataset.max, S.set[k] + +el.dataset.n)); if (S.set.card <= S.set.odds) S.set.card = S.set.odds + 1; saveSettings(); render(); },
-    testChime: function () { Sound.arm(); Sound.chime(); vib([120, 90, 120]); },
-    testAlarm: function () { Sound.arm(); Sound.alarm(); vib([400, 150, 400, 150, 400]); },
+    alarmLen: function (el) { S.dev.alarmLen = +el.dataset.n; saveDev(); render(); Sound.arm(); Sound.alarm(); vib(alarmVib()); },
+    testChime: function () { Sound.arm(); Sound.chime(); vib([120, 90, 120, 1100, 120, 90, 120, 1100, 120, 90, 120]); },
+    testAlarm: function () { Sound.arm(); Sound.alarm(); vib(alarmVib()); },
     setBank: function () { openNumKp({ label: 'STARTING BANKROLL ₹', what: 'Your bankroll before tracked bets', mode: 'int', value: String(S.set.bank || ''), ok: 'Save', done: function (v) { S.set.bank = parseInt(v, 10) || 0; saveSettings(); render(); } }); },
     adjBank: function () {
       openNumKp({ label: 'DEPOSIT (+) OR WITHDRAW (−) ₹', what: 'Tap ± to make it a withdrawal', mode: 'sign', value: '', ok: 'Add', done: function (v) { var n = parseInt(v, 10); if (!n) return; S.set.adj = S.set.adj || []; S.set.adj.push({ amt: n, d: LB.defaultDay(Date.now()).slice(5) }); saveSettings(); render(); } });
@@ -1148,7 +1158,7 @@
     labTrack: function (el) { S.ui.labF.track = el.dataset.t; render(); var sc = root.querySelector('.scroll'); if (sc) sc.scrollTop = 0; },
     // alerts
     alertOpen: function () { var a = currentAlert(); if (!a) return; if (S.kp) { if (S.kp.kind === 'slot') commitSlotField(); S.kp = null; } S.sheet = null; S.alerts = S.alerts.filter(function (x) { return x.id !== a.id; }); S.ui.raceId = a.id; S.ui.view = 'race'; render(); },
-    alertSnooze: function () { var a = currentAlert(); if (!a) return; S.alerts = S.alerts.filter(function (x) { return x.id !== a.id; }); setTimeout(function () { var r = getRace(a.id); if (r && !LB.resultOk(r) && !r.skipped && LB.jumpAt(r) > Date.now()) { S.alerts.push({ id: a.id, k: 'odds', last: Date.now() }); Sound.alarm(); vib([400, 150, 400]); renderLayer(); } }, 60000); renderLayer(); },
+    alertSnooze: function () { var a = currentAlert(); if (!a) return; S.alerts = S.alerts.filter(function (x) { return x.id !== a.id; }); setTimeout(function () { var r = getRace(a.id); if (r && !LB.resultOk(r) && !r.skipped && LB.jumpAt(r) > Date.now()) { S.alerts.push({ id: a.id, k: 'odds', last: Date.now() }); Sound.alarm(); vib(alarmVib()); renderLayer(); } }, 60000); renderLayer(); },
     alertSkip: function () { var a = currentAlert(); if (!a) return; var r = getRace(a.id); r.skipped = true; persist(r); S.alerts = S.alerts.filter(function (x) { return x.id !== a.id; }); render(); toast(raceName(r) + ' skipped', function () { r.skipped = false; persist(r); render(); }); },
     bannerOpen: function () { var id = S.cardBanners.shift(); S.bannerAt = 0; S.bannerMini = false; S.ui.raceId = id; S.ui.view = 'race'; render(); },
     bannerDismiss: function () { S.cardBanners.shift(); S.bannerAt = 0; S.bannerMini = false; renderLayer(); },
