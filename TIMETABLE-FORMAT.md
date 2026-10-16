@@ -22,7 +22,8 @@ Paste this into the chat (Claude, Gemini or ChatGPT) that makes your race timeta
       "ist_date": "2026-10-15",
       "active_runners_reported": 11,
       "race_name": "Example Handicap",
-      "planner_priority": "TOP"
+      "planner_priority": "TOP",
+      "quality_note": "Clear form, 11 runners"
     }
   ]
 }
@@ -40,3 +41,7 @@ What the app does with each part:
 
 Loading a newer file for the same day updates times, runners and priorities. It never makes duplicates.
 Older planner files without the header still load.
+
+| quality_note (optional) | One short line on why the race is good or why to be careful. Shown as RACE QUALITY inside the race |
+
+The app also warns by itself from the runner count: **7 RUN · YOUR CALL** (UK/IE/AU 7 runners pay top 3, not top 4), **1 NR = TOP x** (one non-runner lowers the payout) and **SMALL FIELD** (6 or fewer).

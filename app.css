@@ -401,6 +401,9 @@ input,textarea{-webkit-user-select:text;user-select:text}
 .oc.N,.score .cells .N{background:var(--panel2);color:var(--dim)}
 .mbtn.on{color:var(--green);border-color:#1E4A38;background:var(--green-bg)}
 .mbtn.nr{color:var(--orange);border-color:var(--orange-line);background:var(--orange-bg)}
+.qual{margin:10px 12px 0;padding:10px 14px;border-radius:13px;background:var(--panel2);display:flex;flex-direction:column;gap:3px;font-size:13px;color:var(--muted)}
+.qual b{font:600 12px var(--mono);letter-spacing:1px;color:var(--text)}
+.qual .ff{color:var(--orange)}
 .voidbar{margin:10px 12px 0;padding:12px 14px;border-radius:13px;background:var(--orange-bg);border:1px solid var(--orange-line);color:var(--orange);display:flex;align-items:center;gap:10px;font-size:13px}
 .voidbar b{font:600 12px var(--mono);letter-spacing:1px}
 .voidbar button{margin-left:auto;font:600 11px var(--mono);color:var(--text);padding:8px 0 8px 10px}

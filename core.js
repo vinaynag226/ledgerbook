@@ -87,6 +87,17 @@
   }
   function slotCount(r) { return Math.min(5, tier(r) + 1); }
   function slotActive(r, idx) { return idx < slotCount(r); }
+  // Field-size warning for the user's rule: play 8+ runner races (top 4), 7 runners = your call.
+  // null when there's nothing to say. Not shown when the payout tier was set by hand.
+  function fieldFlag(r) {
+    var n = parseInt(r.runners, 10);
+    if (!n || parseInt(r.pay, 10)) return null;
+    var now = autoTier(r.country, n), less = autoTier(r.country, n - 1);
+    if (!TOP3_COUNTRIES[r.country] && n === 7) return { k: 'call', t: '7 RUN · YOUR CALL', why: '7 runners: pays top 3, not top 4 — you decide whether to play.' };
+    if (n <= 6) return { k: 'small', t: 'SMALL FIELD', why: 'Only ' + n + ' runners: pays top ' + now + '.' };
+    if (less < now) return { k: 'edge', t: '1 NR = TOP ' + less, why: n + ' runners: one non-runner drops the payout from top ' + now + ' to top ' + less + '. Check before you bet.' };
+    return null;
+  }
 
   /* ---------- race model ---------- */
   function emptyPicks() {
@@ -475,6 +486,8 @@
       var r = newRace({ day: rday, at: at, country: normCountry(x.country), track: cleanTrack(x.track), rno: rno, runners: runners, pay: x.pay });
       if (x.race_name) r.name = String(x.race_name).slice(0, 80);
       if (x.planner_priority || x.priority) r.prio = String(x.planner_priority || x.priority).toUpperCase().slice(0, 8);
+      var note = x.quality_note || x.note || x.reason;
+      if (note) r.note = String(note).slice(0, 140);
       var key = raceKey(r);
       if (inFile[key]) { skipped++; return; }
       inFile[key] = 1; days[rday] = (days[rday] || 0) + 1;
@@ -486,6 +499,7 @@
       if (r.runners && r.runners !== old.runners && !(old.nr && old.nr.length)) { old.runners = r.runners; ch.push('runners'); }
       if (r.prio && r.prio !== old.prio) { old.prio = r.prio; ch.push('priority'); }
       if (r.name && r.name !== old.name) old.name = r.name;
+      if (r.note && r.note !== old.note) { old.note = r.note; if (!ch.length) ch.push('note'); }
       if (ch.length) { old.u = Date.now(); updated.push({ r: old, ch: ch }); } else skipped++;
     });
     var mainDay = Object.keys(days).sort(function (a, b) { return days[b] - days[a]; })[0] || day;
@@ -548,7 +562,7 @@
     SLOTS: SLOTS, ENGINES: ENGINES, COUNTRIES: COUNTRIES, TRACKS: TRACKS,
     pad: pad, uid: uid, num: num, round2: round2,
     dayKey: dayKey, defaultDay: defaultDay, makeAt: makeAt, hhmm: hhmm, jumpAt: jumpAt, fmtCountdown: fmtCountdown,
-    autoTier: autoTier, tier: tier, slotCount: slotCount, slotActive: slotActive,
+    autoTier: autoTier, tier: tier, slotCount: slotCount, slotActive: slotActive, fieldFlag: fieldFlag,
     emptyPicks: emptyPicks, newRace: newRace, raceKey: raceKey, trackKey: trackKey, hasPicks: hasPicks, enginesWithPicks: enginesWithPicks, resultOk: resultOk,
     agreement: agreement, agreeLevel: agreeLevel,
     parseResult: parseResult, position: position, outcome: outcome,

@@ -3,7 +3,7 @@
   'use strict';
   var LB = window.LB;
   var SLOTS = LB.SLOTS, ENGINES = LB.ENGINES;
-  var VERSION = '2.0.8';
+  var VERSION = '2.0.9';
 
   /* =========================================================
      STATE
@@ -441,6 +441,8 @@
     else if (r.prio === 'HIGH') out.push('<span class="chip silver">HIGH</span>');
     else if (r.prio && LB.inFocus(r)) out.push('<span class="chip dim">' + esc(r.prio) + '</span>');
     if (r.abandoned) { out.push('<span class="chip orange">ABANDONED</span>'); return out.join(''); }
+    var ff = LB.fieldFlag(r);
+    if (ff && st.k !== 'result' && st.k !== 'done') out.push('<span class="chip ' + (ff.k === 'small' ? 'dim' : 'orange') + '">' + ff.t + '</span>');
     if (r.skipped) out.push('<span class="chip dim">SKIPPED</span>');
     else if (st.k === 'result' && !LB.played(r)) out.push('<span class="chip dim">NOT PLAYED</span>');
     if (st.k === 'odds_now') out.push('<span class="chip red">ODDS NOW</span>');
@@ -480,8 +482,14 @@
       '<button class="mbtn" data-act="runners">' + (r.runners ? r.runners + ' RUNNERS' : 'SET RUNNERS') + '</button>' +
       (r.skipped ? '<button class="mbtn red" data-act="skip">SKIPPED · UNDO</button>' : '') +
       (r.abandoned || LB.resultOk(r) ? '' : '<button class="mbtn' + (LB.followed(r) ? ' on' : '') + '" data-act="follow">' + (LB.followed(r) ? '🔔 ALERTS ON' : '🔕 ALERTS OFF') + '</button>') +
-      (r.prio ? '<span class="mbtn" style="pointer-events:none">' + esc(r.prio) + '</span>' : '') +
       (r.nr || []).map(function (h) { return '<button class="mbtn nr" data-act="nrDel" data-h="' + esc(h) + '">NR #' + esc(h) + ' ✕</button>'; }).join('') + '</div>';
+    // Race quality: planner tier + why, and the field-size warning
+    var ffl = LB.fieldFlag(r), qual = r.prio || r.note || ffl;
+    if (qual && !r.abandoned) {
+      h += '<div class="qual"><b>RACE QUALITY: ' + esc(r.prio || '—') + '</b>' +
+        (r.note ? '<span>' + esc(r.note) + '</span>' : '') +
+        (ffl ? '<span class="ff">' + esc(ffl.why) + '</span>' : '') + '</div>';
+    }
     if (r.abandoned) h += '<div class="voidbar">' + I.warn + '<div><b>ABANDONED</b><div style="font-size:12px;color:var(--muted);margin-top:2px">All bets void — stakes back in your balance. Not counted in stats.</div></div><button data-act="abandon">UNDO</button></div>';
     // agreement tiles
     var ag = LB.agreement(r).filter(function (x) { return x.n >= 2; });
